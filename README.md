@@ -1,1 +1,1 @@
-# KnowledgeContextEngine
+面向知识社区的长期记忆 RAG-Agent 上下文引擎：统一管理资源、会话、用户记忆与 Agent 经验，支持跨文章问答、个性化回答、会话总结与记忆自演化；通过 HTTP/Kafka 接入知识社区主业务后端。
