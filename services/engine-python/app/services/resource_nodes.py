@@ -108,6 +108,8 @@ def _find_matching_previous_section(
     used_section_keys: set[str],
     section_slug: str,
     section_content: str,
+    section_index: int,
+    total_sections: int,
 ) -> ResourceNode | None:
     for previous_section in previous_sections:
         if previous_section.stable_key in used_section_keys:
@@ -128,7 +130,17 @@ def _find_matching_previous_section(
             best_match = previous_section
             best_overlap = overlap
 
-    return best_match if best_overlap > 0 else None
+    if best_overlap > 0:
+        return best_match
+
+    if len(previous_sections) == total_sections:
+        for previous_section in previous_sections:
+            if previous_section.stable_key in used_section_keys:
+                continue
+            if previous_section.section_slug == section_slug and previous_section.ordinal == section_index:
+                return previous_section
+
+    return None
 
 
 def build_resource_nodes(
@@ -207,6 +219,8 @@ def build_resource_nodes(
             used_section_keys=used_section_keys,
             section_slug=section_slug,
             section_content=section_content,
+            section_index=section_index,
+            total_sections=len(sections),
         )
 
         if matching_previous_section is not None:
@@ -243,13 +257,29 @@ def build_resource_nodes(
         )
 
         available_previous_paragraphs = previous_l2_by_parent.get(l1_stable_key, defaultdict(list))
+        previous_paragraph_nodes = [
+            prior_node
+            for prior_node in prior_nodes
+            if prior_node.level == "l2" and prior_node.parent_stable_key == l1_stable_key
+        ]
         next_paragraph_number = _next_paragraph_number(prior_nodes, section_slot)
-        for paragraph_index, paragraph in enumerate(_split_paragraphs(section_content)):
+        current_paragraphs = _split_paragraphs(section_content)
+        used_previous_paragraph_keys: set[str] = set()
+        for paragraph_index, paragraph in enumerate(current_paragraphs):
             matching_previous_paragraph = None
             if available_previous_paragraphs[paragraph]:
                 matching_previous_paragraph = available_previous_paragraphs[paragraph].pop(0)
 
+            if matching_previous_paragraph is None and len(previous_paragraph_nodes) == len(current_paragraphs):
+                for previous_paragraph in previous_paragraph_nodes:
+                    if previous_paragraph.stable_key in used_previous_paragraph_keys:
+                        continue
+                    if previous_paragraph.ordinal == paragraph_index:
+                        matching_previous_paragraph = previous_paragraph
+                        break
+
             if matching_previous_paragraph is not None:
+                used_previous_paragraph_keys.add(matching_previous_paragraph.stable_key)
                 l2_stable_key = matching_previous_paragraph.stable_key
                 l2_path = matching_previous_paragraph.node_path
             else:

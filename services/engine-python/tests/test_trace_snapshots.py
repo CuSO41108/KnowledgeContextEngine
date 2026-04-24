@@ -67,3 +67,48 @@ def test_trace_routes_return_tree_current_node_and_historical_snapshot() -> None
     assert trace_response.json()["compressionSummary"]["beforeContextChars"] > trace_response.json()["compressionSummary"]["afterContextChars"]
     assert trace_node_response.json()["nodeId"] == node_id
     assert trace_node_response.json()["snapshotContent"] == "Redis cache-aside keeps DB authoritative."
+
+
+def test_reindex_keeps_current_node_identity_while_trace_snapshot_stays_historical() -> None:
+    client = TestClient(app)
+
+    first_index = client.post(
+        "/internal/resources/index",
+        json={
+            "resource_slug": "trace-history-doc",
+            "markdown": "# Doc\n## Redis\nOld snapshot content.",
+        },
+    )
+    assert first_index.status_code == 200
+
+    query_response = client.post(
+        "/internal/context/query",
+        json={
+            "question": "How should I reply on Zhiguang about Redis cache-aside?",
+            "resource_id": "trace-history-doc",
+            "session_summary": "Draft a concise Java reply to Zhiguang.",
+            "memory_items": ["User prefers concise Java explanations."],
+        },
+    )
+    assert query_response.status_code == 200
+    query_payload = query_response.json()
+    trace_id = query_payload["traceId"]
+    node_id = query_payload["usedContexts"]["resources"][0]["nodeId"]
+
+    second_index = client.post(
+        "/internal/resources/index",
+        json={
+            "resource_slug": "trace-history-doc",
+            "markdown": "# Doc\n## Redis\nNew current content after reindex.",
+        },
+    )
+    assert second_index.status_code == 200
+
+    historical_trace_node = client.get(f"/internal/traces/{trace_id}/nodes/{node_id}")
+    current_resource_node = client.get(f"/internal/resources/nodes/{node_id}")
+
+    assert historical_trace_node.status_code == 200
+    assert current_resource_node.status_code == 200
+    assert historical_trace_node.json()["snapshotContent"] == "Old snapshot content."
+    assert current_resource_node.json()["nodeId"] == node_id
+    assert current_resource_node.json()["snapshotContent"] == "New current content after reindex."

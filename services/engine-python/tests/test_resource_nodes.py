@@ -113,3 +113,25 @@ def test_build_resource_nodes_preserves_existing_paragraph_when_new_paragraph_is
 
     assert new_paragraph.stable_key == old_paragraph.stable_key
     assert new_paragraph.node_path == old_paragraph.node_path
+
+
+def test_build_resource_nodes_preserves_identity_across_same_structure_content_refresh() -> None:
+    old_markdown = "# Doc\n## Redis\nOld snapshot content."
+    new_markdown = "# Doc\n## Redis\nNew current content after reindex."
+
+    old_nodes = build_resource_nodes(resource_slug="trace-history-doc", markdown=old_markdown)
+    new_nodes = build_resource_nodes(
+        resource_slug="trace-history-doc",
+        markdown=new_markdown,
+        previous_nodes=old_nodes,
+    )
+
+    old_section = next(node for node in old_nodes if node.level == "l1")
+    old_paragraph = next(node for node in old_nodes if node.level == "l2")
+    new_section = next(node for node in new_nodes if node.level == "l1")
+    new_paragraph = next(node for node in new_nodes if node.level == "l2")
+
+    assert new_section.stable_key == old_section.stable_key
+    assert new_section.node_path == old_section.node_path
+    assert new_paragraph.stable_key == old_paragraph.stable_key
+    assert new_paragraph.node_path == old_paragraph.node_path
