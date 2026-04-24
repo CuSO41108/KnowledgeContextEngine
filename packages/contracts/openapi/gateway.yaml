@@ -1,0 +1,87 @@
+openapi: 3.1.0
+info:
+  title: Knowledge Context Engine Gateway API
+  version: 0.1.0
+paths:
+  /api/v1/resources/import:
+    post:
+      summary: Import markdown resources through the gateway
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, resourceDir]
+              properties:
+                provider:
+                  type: string
+                resourceDir:
+                  type: string
+      responses:
+        '200':
+          description: Import completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, provider, importedCount, resourceIds]
+                properties:
+                  status:
+                    type: string
+                  provider:
+                    type: string
+                  importedCount:
+                    type: integer
+                  resourceIds:
+                    type: array
+                    items:
+                      type: string
+  /api/v1/sessions/{sessionId}/query:
+    post:
+      summary: Run a public session query through the engine
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, externalUserId, message, goal]
+              properties:
+                provider:
+                  type: string
+                externalUserId:
+                  type: string
+                message:
+                  type: string
+                goal:
+                  type: string
+      responses:
+        '200':
+          description: Query result
+          content:
+            application/json:
+              schema:
+                $ref: '../json/query-response.schema.json'
+  /api/v1/traces/{traceId}:
+    get:
+      summary: Read back a stored trace payload
+      parameters:
+        - name: traceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Trace result
+          content:
+            application/json:
+              schema:
+                $ref: '../json/trace-response.schema.json'
