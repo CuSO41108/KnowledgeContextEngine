@@ -4,15 +4,15 @@
 
 **Repository:** `D:\code\KnowledgeContextEngine`
 
-**Related Project:** Zhiguang knowledge-sharing platform — `https://github.com/G-Pegasus/zhiguang_be`
+**Related Project:** Zhiguang knowledge-sharing platform - `https://github.com/G-Pegasus/zhiguang_be`
 
-**Positioning:** A standalone, Context Engine-first project for knowledge-community scenarios. It can run independently with local demo data, and it also reserves clean integration points for Zhiguang, a Java-based knowledge-sharing platform, or other content platforms.
+**Positioning:** A standalone, Context Engine-first project for knowledge-community scenarios. It must run independently with local demo data, while preserving clean future integration points for Zhiguang or other content platforms.
 
 ## 1. Original Goal
 
 This project is agent-compatible, but it is not harness-first.
 
-The goal is not to avoid agent behavior. The goal is to avoid spending the main project effort on rebuilding generic agent harness loops, tool runtimes, or orchestration shells that are already covered by other work.
+The goal is not to avoid agent behavior. The goal is to avoid spending the main project effort on rebuilding generic agent harness loops, tool runtimes, or orchestration shells that are already solved elsewhere.
 
 Its primary goal is to demonstrate a reusable Context Engine that:
 
@@ -21,20 +21,20 @@ Its primary goal is to demonstrate a reusable Context Engine that:
 - supports lightweight personalized retrieval through long-term memory
 - exposes addressable and drill-downable context surfaces so the system feels like a context system, not a flat chunk-RAG pipeline
 - remains a complete runnable question-answering project
-- can later integrate with Zhiguang without being reduced to a submodule of Zhiguang
+- can later integrate with Zhiguang without being reduced to a Zhiguang submodule
 
 The agent loop is intentionally thin because the core value is in how context is modeled, retrieved, compressed, remembered, and composed.
 
 ## 2. V1 Design Principles
 
-- **Context Engine first:** the main technical highlight is context modeling and orchestration, not agent autonomy.
+- **Context Engine first:** the main highlight is context modeling and orchestration, not agent autonomy.
 - **MVP only:** every highlight enters v1 in its minimum useful form.
 - **Standalone first:** the project must remain useful without any external business backend.
 - **Dual-mode support:** local demo mode must work end-to-end, while Zhiguang integration points remain explicit and clean.
 - **Clear boundaries:** UI, gateway, engine, storage, and adapters must not bleed responsibilities into each other.
 - **Traceable behavior:** retrieval and context composition must be observable.
 - **Simple auth:** v1 prefers clear, lightweight boundaries over complex identity systems.
-- **Visible context surface:** v1 must expose enough tree/path/drill-down behavior that the project is recognizable as a context system rather than a generic RAG service.
+- **Visible context surface:** v1 must expose enough tree/path/drill-down behavior that the project is recognizable as a context system rather than generic RAG.
 - **Core over shell:** retrieval, memory, compression, and trace quality take priority over UI polish or heavy platform packaging.
 
 ## 3. Core Concepts
@@ -70,8 +70,6 @@ V1 memory is split into two logical channels:
 Both channels may live in the same physical table in v1, but they must remain distinguishable by schema and retrieval logic.
 
 #### Minimum `memory_type` enum for v1
-
-To avoid turning the `memories` table into an unbounded dump of arbitrary notes, v1 should start with a constrained minimum enum.
 
 For **User Memory**:
 
@@ -113,9 +111,10 @@ The intended retrieval flow is:
 
 To preserve a recognizable "context system" identity, resources must be externally addressable in v1.
 
-V1 does not need a full virtual filesystem interface, but it must expose at least:
+V1 must expose at least:
 
-- a stable `node_path` or equivalent address for each resource node
+- a stable `node_path` for each resource node
+- a stable lineage key such as `stable_key` for each resource node
 - a browsable resource tree for `L0 / L1 / L2`
 - a drill-down trail in retrieval trace showing how the system moved from coarse resource selection to final grounding
 
@@ -135,6 +134,7 @@ V1 should follow these stability rules:
 
 - reindexing should preserve `node_path` when the same logical resource hierarchy and section lineage still exist
 - content edits may change node content or embeddings without changing `node_path` if the logical section identity remains the same
+- every node should also carry a `stable_key` derived from logical lineage; for `L2` nodes this should come from section lineage plus ordinal or anchor, not raw chunk text alone
 - if the hierarchy changes materially, the system may create a new `node_path`, but traces must still retain the historical `node_path` observed at answer time
 - trace payloads must store both `node_id` and `node_path` so historical explanations remain readable even after reindexing
 
@@ -168,7 +168,6 @@ KnowledgeContextEngine/
   data/
     demo-resources/             # Local demo resources
     demo-memories/              # Optional demo seed memories
-  docker/
   docs/
     architecture/
     superpowers/
@@ -186,7 +185,7 @@ KnowledgeContextEngine/
 - built with TypeScript and Vercel AI SDK
 - provides a runnable chat UI and streaming demo
 - shows answer and retrieval trace
-- exposes resource tree / node drill-down views through the public APIs
+- exposes resource tree and drill-down views through public APIs
 - does not implement retrieval, memory, or storage logic
 
 #### `services/engine-python`
@@ -198,12 +197,14 @@ It is responsible for:
 - resource ingest
 - chunking
 - `L0 / L1 / L2` generation
-- stable node-path generation
+- stable `node_path` and `stable_key` generation
 - embedding and vector recall
 - session context assembly
 - memory extraction and memory recall
 - rerank and context fusion
 - context compression
+- retrieval trace persistence
+- trace-node snapshot persistence
 - final context composition
 
 #### `services/gateway-java`
@@ -217,8 +218,8 @@ It is responsible for:
 - internal `UUID` user mapping
 - `provider/external_user_id` identity binding
 - request validation and boundary checks
-- future Zhiguang adapter integration
 - proxying to the Python engine
+- future Zhiguang adapter integration
 
 ### 4.3 Why Keep Gateway Java in V1
 
@@ -228,7 +229,7 @@ Gateway Java exists in v1 to preserve the target architecture:
 - Python side stays focused on context logic
 - the project remains ready to integrate with Zhiguang later
 
-The v1 gateway remains intentionally thin.
+The v1 gateway remains intentionally thin, but it must be a real proxy boundary rather than a hard-coded stub.
 
 ## 5. Runtime Modes
 
@@ -262,6 +263,7 @@ The primary demo story should be:
 - a user is reading or replying within a Zhiguang-shaped knowledge-community scenario
 - the system combines:
   - the current article, post, or selected resource
+  - the reply draft target or current community question
   - related resources or sections
   - the user's prior interests or long-term user memory
   - task / experience memory from prior successful sessions, resources, or resolutions
@@ -270,13 +272,16 @@ The primary demo story should be:
 - the system explains why those resources, memories, and session summaries were selected
 - the system shows the drill-down path from broad resource selection to final grounding
 
-Demo mode should simulate this story with seeded local resources, seeded user history, and seeded task / experience memory, even before real Zhiguang integration exists.
+Demo mode should simulate this story with seeded local resources, seeded user history, seeded task / experience memory, and at least one prior trace fixture, even before real Zhiguang integration exists.
 
 The seeded demo should feel like a local Zhiguang slice rather than generic doc QA. For example, local demo data may include:
 
 - a current article the user is reading
+- a reply draft target or current community question
 - related community posts or notes
 - favorite or previously opened resources
+- seeded user-memory entries such as explanation preference or topic preference
+- seeded task / experience memory entries such as successful-resource or prior-resolution records
 - prior successful answer traces or reusable fragments
 
 ## 6. Identity and Isolation Model
@@ -307,8 +312,6 @@ V1 explicitly does **not** support:
 - organization/workspace RBAC
 - resource-level ACL systems
 
-This means v1 must isolate by user, but does not implement enterprise-grade multi-tenant security.
-
 ## 7. Storage and Persistence
 
 ### 7.1 Primary Stores
@@ -316,7 +319,7 @@ This means v1 must isolate by user, but does not implement enterprise-grade mult
 - **PostgreSQL + pgvector**
   - source of truth for metadata, sessions, memories, traces, and vectors
 - **Redis**
-  - optional cache for session/retrieval acceleration
+  - optional cache for session or retrieval acceleration
 - **Local filesystem**
   - demo resource input under `data/demo-resources/`
 
@@ -325,32 +328,17 @@ This means v1 must isolate by user, but does not implement enterprise-grade mult
 V1 should stay close to the following minimal schema:
 
 - `users`
-  - internal users with `UUID`
-
 - `identity_bindings`
-  - maps internal users to external identities
-
 - `resources`
-  - resource metadata such as title, provider, source URI, tags, status
-
 - `resource_nodes`
-  - stores `L0 / L1 / L2` nodes
-  - includes `resource_id`, `level`, `parent_node_id`, `node_path`, text fields, embedding
-
+  - includes `resource_id`, `level`, `stable_key`, `parent_node_id`, `node_path`, text fields, embedding
 - `sessions`
-  - session header, mode, goal, summary, status
-
 - `session_turns`
-  - one row per interaction turn
-
 - `memories`
-  - long-term memory entries with `memory_channel`, `memory_type`, salience, source references, and embedding
-
+  - includes `memory_channel`, `memory_type`, salience, source references, embedding
 - `retrieval_traces`
-  - retrieval candidates, selections, drill-down trail, compression info, and metrics
-
+  - includes retrieval candidates, drill-down trail, compression info, and metrics
 - `retrieval_trace_nodes`
-  - trace-scoped snapshots of the exact nodes used at answer time
   - includes `trace_id`, `node_id`, `node_path`, snapshot content, and ancestry metadata so trace nodes remain re-queryable after reindexing
 
 ### 7.3 Why a Unified `resource_nodes` Table
@@ -375,23 +363,22 @@ The implementation should support one OpenAI-compatible provider configuration:
 - `chat_model`
 - `embedding_model`
 
-This is intentionally simple.
-
-V1 should reserve configuration compatibility for **Alibaba Cloud Bailian** by allowing the above values to be swapped through configuration. No full multi-provider abstraction layer is required in v1.
+V1 should reserve configuration compatibility for Alibaba Cloud Bailian by allowing the above values to be swapped through configuration. No full multi-provider routing layer is required in v1.
 
 ## 9. Configuration Strategy
 
 ### 9.1 General Rule
 
 - secrets come from `.env`
+- `.env.example` remains the template committed to the repo
 - non-secret settings live in `yml` or `yaml`
 
 ### 9.2 Root-Level Files
 
 - `.env.example`
-  - database passwords
-  - API keys
-  - provider secrets
+  - template for database passwords
+  - template for API keys
+  - template for provider secrets
   - overridable ports if needed
 
 - `docker-compose.yml`
@@ -401,10 +388,8 @@ V1 should reserve configuration compatibility for **Alibaba Cloud Bailian** by a
 
 - Java:
   - `services/gateway-java/src/main/resources/application.yml`
-
 - Python:
   - `services/engine-python/config.yaml` or equivalent settings file
-
 - Demo chat:
   - `apps/demo-chat/.env.local.example`
 
@@ -419,7 +404,12 @@ Preferred v1 containers:
 - `engine-python`
 - `gateway-java`
 - `demo-chat`
-- `demo-bootstrap` or equivalent one-shot initializer that seeds demo resources and demo memories when the stack is first started
+- `demo-bootstrap` or equivalent one-shot initializer
+
+Additional requirements:
+
+- runtime services should read secrets from `.env` generated from `.env.example`, not hard-code localhost DSNs or service base URLs in application code
+- `demo-bootstrap` should seed demo resources, demo identities, demo memories, and at least one prior trace fixture before `demo-chat` is considered ready
 
 The local experience should be close to "clone -> configure secrets -> docker compose up".
 
@@ -431,28 +421,20 @@ V1 public APIs should include:
 
 - `POST /api/v1/resources/import`
   - import demo resources or adapter-provided resources
-
 - `GET /api/v1/resources/{resourceId}/tree`
   - browse the resource tree and its `L0 / L1 / L2` structure
-
 - `GET /api/v1/resources/nodes/{nodeId}`
   - inspect a resource node and its path metadata
-
-- `GET /api/v1/traces/{traceId}/nodes/{nodeId}`
-  - inspect the trace-scoped node snapshot used at answer time, even if the resource has since been reindexed
-
 - `POST /api/v1/sessions`
   - create a session
-
 - `POST /api/v1/sessions/{sessionId}/query`
   - main user-facing question-answering entry
-
 - `POST /api/v1/sessions/{sessionId}/commit`
-  - persist the turn and trigger summary/memory updates
-
+  - persist the turn and trigger summary or memory updates
 - `GET /api/v1/traces/{traceId}`
   - inspect retrieval behavior
-
+- `GET /api/v1/traces/{traceId}/nodes/{nodeId}`
+  - inspect the trace-scoped node snapshot used at answer time
 - `POST /api/v1/adapters/zhiguang/sync`
   - reserved adapter sync entry for future Zhiguang integration
 
@@ -461,9 +443,13 @@ V1 public APIs should include:
 V1 internal APIs should include:
 
 - `POST /internal/resources/index`
+- `GET /internal/resources/{resourceId}/tree`
+- `GET /internal/resources/nodes/{nodeId}`
 - `POST /internal/context/query`
 - `POST /internal/memory/extract`
 - `POST /internal/session/summarize`
+- `GET /internal/traces/{traceId}`
+- `GET /internal/traces/{traceId}/nodes/{nodeId}`
 
 `engine-python` must not be directly exposed to the public internet in v1.
 
@@ -473,7 +459,7 @@ The core user flow should be:
 
 1. user sends a question from `demo-chat` or another caller
 2. `gateway-java` authenticates the caller and resolves the internal user
-3. `gateway-java` forwards the request to `engine-python`
+3. `gateway-java` forwards the request to `engine-python` and later proxies resource-tree or trace lookups to internal engine read APIs
 4. `engine-python` performs:
    - recent session recall
    - memory recall
@@ -483,12 +469,13 @@ The core user flow should be:
    - context compression
    - final context assembly
    - answer generation
-5. `gateway-java` returns:
+5. `engine-python` persists retrieval traces and trace-node snapshots for later re-query
+6. `gateway-java` returns:
    - answer
    - trace id
    - used context metadata
    - compression summary
-6. the turn is committed and may trigger session summarization and memory extraction
+7. the turn is committed and may trigger session summarization and memory extraction
 
 This keeps the project as a complete Q&A system, not just a context-preparation utility.
 
@@ -527,25 +514,22 @@ Example shape:
 }
 ```
 
-V1 does not need general-purpose schema-controlled LLM output.
-
-However, these internal artifacts should be schema-first from the start:
+These internal artifacts should be schema-first from the start:
 
 - import payloads
 - retrieval traces
 - memory extraction result
 - context composition result
 
-The schema must be strong enough to express:
+At minimum, response contracts should make these fields explicit:
 
-- memory channel and memory type
-- resource node path
-- drill-down trail from `L0` to `L2`
-- trace-scoped node identity and snapshot lookup
+- resource usage entries: `nodeId`, `traceNodeId`, `nodePath`, `drilldownTrail`
+- memory usage entries: `channel`, `type`
+- trace snapshot entries: `nodeId`, `nodePath`, `level`, `ancestry`
 
 Trace-exposed resource references must remain re-queryable.
 
-At minimum, a trace should include enough information to support:
+At minimum, a trace should support:
 
 - current node lookup through `GET /api/v1/resources/nodes/{nodeId}`
 - historical trace-scoped lookup through `GET /api/v1/traces/{traceId}/nodes/{nodeId}`
@@ -575,7 +559,7 @@ JWT and full platform auth are deferred.
 - sessions are isolated by internal `user_id`
 - memories are isolated by internal `user_id`
 - traces are isolated by internal `user_id`
-- resources must carry provider/source metadata to avoid accidental cross-mode pollution
+- resources must carry provider and source metadata to avoid accidental cross-mode pollution
 
 ### 13.4 Required V1 Protections
 
@@ -583,7 +567,7 @@ JWT and full platform auth are deferred.
 - file import whitelist and path validation
 - retrieval candidate limits
 - safe trace output with no raw secret leakage
-- memory write filtering based on simple salience/quality checks
+- memory write filtering based on simple salience or quality checks
 - log scrubbing for keys and sensitive content
 
 ### 13.5 Known Risks That Must Be Explicitly Managed
@@ -593,7 +577,7 @@ JWT and full platform auth are deferred.
 - memory poisoning from malicious input
 - retrieval trace overexposure
 - path traversal during local imports
-- excessive compute/cost due to long documents or oversized recall
+- excessive compute or cost due to long documents or oversized recall
 
 ## 14. V1 MVP Scope
 
@@ -606,8 +590,8 @@ The following items must be completed in v1:
 5. session creation and turn persistence
 6. lightweight session summary compression
 7. dual-channel long-term memory extraction and recall
-8. fused query pipeline across resource/session/memory
-9. resource tree / node browse APIs
+8. fused query pipeline across resource, session, and memory
+9. resource tree and node browse APIs
 10. final answer generation
 11. retrieval trace inspection with drill-down trail
 12. demo-chat runnable end-to-end
@@ -620,7 +604,7 @@ The following items must be completed in v1:
 
 - `goal` field on session creation and query
 - citations in final answer response
-- provider/source filtering in retrieval
+- provider or source filtering in retrieval
 - Redis caching for hot session or retrieval paths
 - richer trace metrics and trace UI
 
@@ -631,15 +615,15 @@ These should not be allowed to derail the MVP.
 The following are out of scope for v1:
 
 - complex multi-tenant systems
-- organization/workspace RBAC
+- organization or workspace RBAC
 - production-grade Zhiguang integration
 - workflow-heavy autonomous agent systems
 - complex tool ecosystems
 - Kafka or message-bus architecture
 - multiple vector-store backends
-- general web crawling/search ingestion
+- general web crawling or search ingestion
 - heavy virtual filesystem semantics
-- generalized multi-provider model-routing
+- generalized multi-provider model routing
 - full virtual filesystem commands such as `ls/find/cd` as first-class user APIs
 
 ## 17. Acceptance Criteria
@@ -650,7 +634,7 @@ V1 is considered successful if the project can demonstrate the following:
 2. import local demo resources
 3. create a user and session
 4. ask questions through the demo chat
-5. receive answers grounded in retrieved resource/session/memory context
+5. receive answers grounded in retrieved resource, session, and memory context
 6. inspect a retrieval trace that shows the `L0 -> L1 -> L2` drill-down path
 7. inspect addressable resource nodes through the public APIs
 8. persist the interaction as session state and both user/task-experience memory
@@ -674,7 +658,7 @@ Deliberately reduced in v1:
 
 - heavy virtual filesystem semantics
 - broad multi-language systems complexity
-- full instruction/skill ecosystem
+- full instruction or skill ecosystem
 - enterprise-scale feature surface
 
 The result should feel inspired by a context operating system, while remaining small enough to finish as a strong MVP.
