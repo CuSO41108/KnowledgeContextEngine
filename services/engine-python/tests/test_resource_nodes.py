@@ -73,3 +73,43 @@ def test_build_resource_nodes_uses_coarse_summary_for_l0_content() -> None:
 
     assert l0_node.content == "Java Cache"
     assert l0_node.content != markdown
+
+
+def test_build_resource_nodes_preserves_existing_sections_when_new_section_is_inserted_before() -> None:
+    old_markdown = "# Doc\n## Redis\nfirst\n\n## Memcached\nsecond"
+    new_markdown = "# Doc\n## Overview\nintro\n\n## Redis\nfirst\n\n## Memcached\nsecond"
+
+    old_nodes = build_resource_nodes(resource_slug="cache-doc", markdown=old_markdown)
+    new_nodes = build_resource_nodes(
+        resource_slug="cache-doc",
+        markdown=new_markdown,
+        previous_nodes=old_nodes,
+    )
+
+    old_redis = next(node for node in old_nodes if node.level == "l1" and node.content == "first")
+    old_memcached = next(node for node in old_nodes if node.level == "l1" and node.content == "second")
+    new_redis = next(node for node in new_nodes if node.level == "l1" and node.content == "first")
+    new_memcached = next(node for node in new_nodes if node.level == "l1" and node.content == "second")
+
+    assert new_redis.stable_key == old_redis.stable_key
+    assert new_redis.node_path == old_redis.node_path
+    assert new_memcached.stable_key == old_memcached.stable_key
+    assert new_memcached.node_path == old_memcached.node_path
+
+
+def test_build_resource_nodes_preserves_existing_paragraph_when_new_paragraph_is_inserted_before() -> None:
+    old_markdown = "# Doc\n## Redis\nfirst"
+    new_markdown = "# Doc\n## Redis\nintro\n\nfirst"
+
+    old_nodes = build_resource_nodes(resource_slug="cache-doc", markdown=old_markdown)
+    new_nodes = build_resource_nodes(
+        resource_slug="cache-doc",
+        markdown=new_markdown,
+        previous_nodes=old_nodes,
+    )
+
+    old_paragraph = next(node for node in old_nodes if node.level == "l2" and node.content == "first")
+    new_paragraph = next(node for node in new_nodes if node.level == "l2" and node.content == "first")
+
+    assert new_paragraph.stable_key == old_paragraph.stable_key
+    assert new_paragraph.node_path == old_paragraph.node_path

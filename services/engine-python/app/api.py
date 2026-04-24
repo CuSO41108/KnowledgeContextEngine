@@ -81,10 +81,12 @@ def health() -> dict[str, str]:
 
 @router.post("/internal/resources/index", response_model=ResourceIndexResponse)
 def index_resource(payload: ResourceIndexRequest) -> ResourceIndexResponse:
+    previous_nodes = _resource_index_store.get(payload.resource_slug, [])
     nodes = build_resource_nodes(
         resource_slug=payload.resource_slug,
         markdown=payload.markdown,
         previous_path_map=payload.previous_path_map,
+        previous_nodes=previous_nodes,
     )
     _resource_index_store[payload.resource_slug] = nodes
     return ResourceIndexResponse(
