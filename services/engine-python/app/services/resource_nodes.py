@@ -104,7 +104,7 @@ def build_resource_nodes(
             parent_stable_key=None,
             parent_node_path=None,
             title=document_title,
-            content=markdown.strip(),
+            content=document_title,
             ordinal=0,
             section_slug="root",
             ancestry=[],
@@ -113,12 +113,13 @@ def build_resource_nodes(
 
     for section_index, (section_title, section_lines) in enumerate(sections):
         section_slug = _slugify(section_title)
-        l1_stable_key = f"l1:{section_slug}"
+        section_slot = f"s{section_index:03d}"
+        l1_stable_key = f"l1:{section_slot}"
         l1_path = _build_node_path(
             resource_slug=resource_slug,
             level="l1",
             stable_key=l1_stable_key,
-            default_suffix=section_slug,
+            default_suffix=section_slot,
             previous_path_map=path_map,
         )
         section_content = "\n".join(section_lines).strip()
@@ -140,12 +141,12 @@ def build_resource_nodes(
         )
 
         for paragraph_index, paragraph in enumerate(_split_paragraphs(section_content)):
-            l2_stable_key = f"l2:{section_slug}:{paragraph_index:03d}"
+            l2_stable_key = f"l2:{section_slot}:{paragraph_index:03d}"
             l2_path = _build_node_path(
                 resource_slug=resource_slug,
                 level="l2",
                 stable_key=l2_stable_key,
-                default_suffix=f"{section_slug}/{paragraph_index:03d}",
+                default_suffix=f"{section_slot}/{paragraph_index:03d}",
                 previous_path_map=path_map,
             )
             nodes.append(

@@ -19,7 +19,21 @@ class ResourceIndexRequest(BaseModel):
 class ResourceIndexResponse(BaseModel):
     resource_slug: str
     imported_count: int
-    nodes: list[dict[str, object]]
+    nodes: list["ResourceNodeResponse"]
+
+
+class ResourceNodeResponse(BaseModel):
+    resource_slug: str
+    level: str
+    stable_key: str
+    node_path: str
+    parent_stable_key: str | None
+    parent_node_path: str | None
+    title: str
+    content: str
+    ordinal: int
+    section_slug: str
+    ancestry: list[dict[str, str]]
 
 
 @router.get("/health")
@@ -42,5 +56,5 @@ def index_resource(payload: ResourceIndexRequest) -> ResourceIndexResponse:
     return ResourceIndexResponse(
         resource_slug=payload.resource_slug,
         imported_count=len(nodes),
-        nodes=[node.to_dict() for node in nodes],
+        nodes=[ResourceNodeResponse.model_validate(node.to_dict()) for node in nodes],
     )
