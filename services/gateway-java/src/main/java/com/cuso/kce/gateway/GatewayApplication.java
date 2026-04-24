@@ -17,7 +17,7 @@ public class GatewayApplication {
     FilterRegistrationBean<ApiKeyFilter> apiKeyFilterRegistration(ApiKeyFilter apiKeyFilter) {
         FilterRegistrationBean<ApiKeyFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(apiKeyFilter);
-        registration.addUrlPatterns("/api/v1/*");
+        registration.addUrlPatterns("/*");
         registration.setOrder(1);
         return registration;
     }

@@ -14,11 +14,18 @@ import java.io.IOException;
 public class ApiKeyFilter extends OncePerRequestFilter {
 
     private static final String API_KEY_HEADER = "X-API-Key";
+    private static final String API_PREFIX = "/api/v1/";
 
     private final String expectedApiKey;
 
     public ApiKeyFilter(@Value("${kce.auth.api-key}") String expectedApiKey) {
         this.expectedApiKey = expectedApiKey;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String requestUri = request.getRequestURI();
+        return !"/api/v1".equals(requestUri) && !requestUri.startsWith(API_PREFIX);
     }
 
     @Override
