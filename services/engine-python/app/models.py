@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+
+from sqlalchemy import Enum as SqlEnum
+from sqlalchemy import Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
-try:
-    from sqlalchemy import Boolean, Enum as SqlEnum, ForeignKey, Integer, String, Table
-    from sqlalchemy.orm import Mapped, mapped_column
 
-    SQLALCHEMY_AVAILABLE = True
-except ModuleNotFoundError:
-    SQLALCHEMY_AVAILABLE = False
+def _enum_values(enum_cls: type[Enum]) -> list[str]:
+    return [member.value for member in enum_cls]
+
+
+def _constrained_enum(enum_cls: type[Enum], enum_name: str) -> SqlEnum:
+    return SqlEnum(
+        enum_cls,
+        name=enum_name,
+        native_enum=False,
+        values_callable=_enum_values,
+        validate_strings=True,
+    )
 
 
 class MemoryChannel(str, Enum):
@@ -30,99 +39,101 @@ class MemoryType(str, Enum):
     PRIOR_RESOLUTION = "prior_resolution"
 
 
-if SQLALCHEMY_AVAILABLE:
-    class User(Base):
-        __tablename__ = "users"
+class User(Base):
+    __tablename__ = "users"
 
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        external_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-
-
-    class IdentityBinding(Base):
-        __tablename__ = "identity_bindings"
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-        provider: Mapped[str] = mapped_column(String(100), nullable=False)
-        subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
-    class Resource(Base):
-        __tablename__ = "resources"
+class IdentityBinding(Base):
+    __tablename__ = "identity_bindings"
 
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        uri: Mapped[str] = mapped_column(String(500), nullable=False)
-
-
-    class ResourceNode(Base):
-        __tablename__ = "resource_nodes"
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        resource_id: Mapped[int] = mapped_column(ForeignKey("resources.id"), nullable=False)
-        node_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    external_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
-    class Session(Base):
-        __tablename__ = "sessions"
+class Resource(Base):
+    __tablename__ = "resources"
 
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-
-
-    class SessionTurn(Base):
-        __tablename__ = "session_turns"
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False)
-        turn_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_uri: Mapped[str] = mapped_column(String(1000), nullable=False)
 
 
-    class Memory(Base):
-        __tablename__ = "memories"
+class ResourceNode(Base):
+    __tablename__ = "resource_nodes"
 
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-        channel: Mapped[MemoryChannel] = mapped_column(SqlEnum(MemoryChannel), nullable=False)
-        memory_type: Mapped[MemoryType] = mapped_column(SqlEnum(MemoryType), nullable=False)
-        is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-
-    class RetrievalTrace(Base):
-        __tablename__ = "retrieval_traces"
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        session_turn_id: Mapped[int] = mapped_column(
-            ForeignKey("session_turns.id"),
-            nullable=False,
-        )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    resource_id: Mapped[int] = mapped_column(ForeignKey("resources.id"), nullable=False)
+    parent_node_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resource_nodes.id"),
+        nullable=True,
+    )
+    level: Mapped[int] = mapped_column(Integer, nullable=False)
+    stable_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    node_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
 
 
-    class RetrievalTraceNode(Base):
-        __tablename__ = "retrieval_trace_nodes"
+class Session(Base):
+    __tablename__ = "sessions"
 
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        retrieval_trace_id: Mapped[int] = mapped_column(
-            ForeignKey("retrieval_traces.id"),
-            nullable=False,
-        )
-        resource_node_id: Mapped[int] = mapped_column(
-            ForeignKey("resource_nodes.id"),
-            nullable=False,
-        )
-else:
-    def _register_table(name: str) -> None:
-        Base.metadata.tables.setdefault(name, {"name": name})
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    mode: Mapped[str] = mapped_column(String(50), nullable=False)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-    for _table_name in (
-        "users",
-        "identity_bindings",
-        "resources",
-        "resource_nodes",
-        "sessions",
-        "session_turns",
-        "memories",
-        "retrieval_traces",
-        "retrieval_trace_nodes",
-    ):
-        _register_table(_table_name)
+class SessionTurn(Base):
+    __tablename__ = "session_turns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False)
+    user_message: Mapped[str] = mapped_column(Text, nullable=False)
+    assistant_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class Memory(Base):
+    __tablename__ = "memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    memory_channel: Mapped[MemoryChannel] = mapped_column(
+        _constrained_enum(MemoryChannel, "memory_channel"),
+        nullable=False,
+    )
+    memory_type: Mapped[MemoryType] = mapped_column(
+        _constrained_enum(MemoryType, "memory_type"),
+        nullable=False,
+    )
+    salience: Mapped[float] = mapped_column(Float, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class RetrievalTrace(Base):
+    __tablename__ = "retrieval_traces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+    drilldown_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    compression_before: Mapped[int] = mapped_column(Integer, nullable=False)
+    compression_after: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class RetrievalTraceNode(Base):
+    __tablename__ = "retrieval_trace_nodes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trace_id: Mapped[int] = mapped_column(ForeignKey("retrieval_traces.id"), nullable=False)
+    node_id: Mapped[int] = mapped_column(ForeignKey("resource_nodes.id"), nullable=False)
+    node_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    level: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_content: Mapped[str] = mapped_column(Text, nullable=False)
+    ancestry_json: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
