@@ -4,7 +4,9 @@
 
 **Repository:** `D:\code\KnowledgeContextEngine`
 
-**Positioning:** A standalone, Context Engine-first project for knowledge-community scenarios. The project can run independently with local demo data, and it also reserves clean integration points for Zhiguang or other content platforms.
+**Related Project:** Zhiguang knowledge-sharing platform — `https://github.com/G-Pegasus/zhiguang_be`
+
+**Positioning:** A standalone, Context Engine-first project for knowledge-community scenarios. It can run independently with local demo data, and it also reserves clean integration points for Zhiguang, a Java-based knowledge-sharing platform, or other content platforms.
 
 ## 1. Original Goal
 
@@ -21,7 +23,7 @@ Its primary goal is to demonstrate a reusable Context Engine that:
 - remains a complete runnable question-answering project
 - can later integrate with Zhiguang without being reduced to a submodule of Zhiguang
 
-The agent harness is intentionally thin. The core value is in the context system itself.
+The agent loop is intentionally thin because the core value is in how context is modeled, retrieved, compressed, remembered, and composed.
 
 ## 2. V1 Design Principles
 
@@ -241,6 +243,8 @@ Used for independent operation without Zhiguang.
 
 ### 5.2 Zhiguang Mode
 
+Zhiguang refers to the related knowledge-sharing platform repository: `https://github.com/G-Pegasus/zhiguang_be`.
+
 Used for future integration with Zhiguang.
 
 - resources come from adapter sync APIs
@@ -255,17 +259,25 @@ V1 should not present itself as "a document Q&A system that might integrate with
 
 The primary demo story should be:
 
-- a user asks a question in a knowledge-community scenario
+- a user is reading or replying within a Zhiguang-shaped knowledge-community scenario
 - the system combines:
-  - the current article or selected resource
+  - the current article, post, or selected resource
   - related resources or sections
-  - the user's prior interests or long-term memory
+  - the user's prior interests or long-term user memory
+  - task / experience memory from prior successful sessions, resources, or resolutions
   - the current session summary
 - the system returns a personalized answer
 - the system explains why those resources, memories, and session summaries were selected
 - the system shows the drill-down path from broad resource selection to final grounding
 
-Demo mode should simulate this story with seeded local resources and seeded user history, even before real Zhiguang integration exists.
+Demo mode should simulate this story with seeded local resources, seeded user history, and seeded task / experience memory, even before real Zhiguang integration exists.
+
+The seeded demo should feel like a local Zhiguang slice rather than generic doc QA. For example, local demo data may include:
+
+- a current article the user is reading
+- related community posts or notes
+- favorite or previously opened resources
+- prior successful answer traces or reusable fragments
 
 ## 6. Identity and Isolation Model
 
@@ -337,6 +349,10 @@ V1 should stay close to the following minimal schema:
 - `retrieval_traces`
   - retrieval candidates, selections, drill-down trail, compression info, and metrics
 
+- `retrieval_trace_nodes`
+  - trace-scoped snapshots of the exact nodes used at answer time
+  - includes `trace_id`, `node_id`, `node_path`, snapshot content, and ancestry metadata so trace nodes remain re-queryable after reindexing
+
 ### 7.3 Why a Unified `resource_nodes` Table
 
 V1 should not split `L0 / L1 / L2` into separate tables.
@@ -403,6 +419,7 @@ Preferred v1 containers:
 - `engine-python`
 - `gateway-java`
 - `demo-chat`
+- `demo-bootstrap` or equivalent one-shot initializer that seeds demo resources and demo memories when the stack is first started
 
 The local experience should be close to "clone -> configure secrets -> docker compose up".
 
@@ -489,6 +506,8 @@ Example shape:
   "usedContexts": {
     "resources": [
       {
+        "nodeId": "uuid",
+        "traceNodeId": "uuid",
         "nodePath": "resource://...",
         "drilldownTrail": []
       }
@@ -522,6 +541,7 @@ The schema must be strong enough to express:
 - memory channel and memory type
 - resource node path
 - drill-down trail from `L0` to `L2`
+- trace-scoped node identity and snapshot lookup
 
 Trace-exposed resource references must remain re-queryable.
 
