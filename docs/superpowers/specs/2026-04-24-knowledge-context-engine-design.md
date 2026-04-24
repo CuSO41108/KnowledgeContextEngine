@@ -15,6 +15,7 @@ Its primary goal is to demonstrate a reusable Context Engine that:
 - abstracts context into `Resource / Session / Memory` layers
 - supports layered retrieval, context fusion, and context compression
 - supports lightweight personalized retrieval through long-term memory
+- exposes addressable and drill-downable context surfaces so the system feels like a context system, not a flat chunk-RAG pipeline
 - remains a complete runnable question-answering project
 - can later integrate with Zhiguang without being reduced to a submodule of Zhiguang
 
@@ -29,6 +30,8 @@ The agent harness is intentionally thin. The core value is in the context system
 - **Clear boundaries:** UI, gateway, engine, storage, and adapters must not bleed responsibilities into each other.
 - **Traceable behavior:** retrieval and context composition must be observable.
 - **Simple auth:** v1 prefers clear, lightweight boundaries over complex identity systems.
+- **Visible context surface:** v1 must expose enough tree/path/drill-down behavior that the project is recognizable as a context system rather than a generic RAG service.
+- **Core over shell:** retrieval, memory, compression, and trace quality take priority over UI polish or heavy platform packaging.
 
 ## 3. Core Concepts
 
@@ -45,10 +48,24 @@ The three context layers are **not** three storage tiers. They are three context
   - Represents "what is happening in the current conversation".
 
 - **Memory Context**
-  - Long-term user-centric information such as preferences, repeated interests, study focus, and stable facts inferred from prior interaction.
+  - Long-term information accumulated across users and tasks, such as preferences, repeated interests, study focus, successful resource usage patterns, and reusable facts inferred from prior interaction.
   - Represents "what the system should remember across sessions".
 
-### 3.2 Resource Granularity Layers
+### 3.2 Memory Channels
+
+V1 memory must not be limited to user profile extraction.
+
+V1 memory is split into two logical channels:
+
+- **User Memory**
+  - stable or semi-stable user information such as interests, learning goals, topic preferences, repeated follow-up patterns, and preferred explanations
+
+- **Task / Experience Memory**
+  - reusable information from prior sessions such as high-value resources, effective retrieval paths, frequently reused knowledge fragments, and patterns about which context combinations worked well
+
+Both channels may live in the same physical table in v1, but they must remain distinguishable by schema and retrieval logic.
+
+### 3.3 Resource Granularity Layers
 
 `L0 / L1 / L2` describe **resource detail levels**, not business context types.
 
@@ -68,7 +85,25 @@ The intended retrieval flow is:
 3. final grounding on selected `L2`
 4. fuse with `Session Context` and `Memory Context`
 
-### 3.3 Goal Field
+### 3.4 Context Addressability and Drill-Down
+
+To preserve a recognizable "context system" identity, resources must be externally addressable in v1.
+
+V1 does not need a full virtual filesystem interface, but it must expose at least:
+
+- a stable `node_path` or equivalent address for each resource node
+- a browsable resource tree for `L0 / L1 / L2`
+- a drill-down trail in retrieval trace showing how the system moved from coarse resource selection to final grounding
+
+This means the system should be able to explain a query in terms of:
+
+1. which `L0` resource cards were considered
+2. which `L1` sections or overviews were drilled into
+3. which `L2` chunks were finally used
+
+This visible path is one of the main distinctions between this project and ordinary flat chunk-RAG systems.
+
+### 3.5 Goal Field
 
 `goal` is an optional session-level field used as a lightweight task anchor.
 
@@ -114,6 +149,7 @@ KnowledgeContextEngine/
 - built with TypeScript and Vercel AI SDK
 - provides a runnable chat UI and streaming demo
 - shows answer and retrieval trace
+- exposes resource tree / node drill-down views through the public APIs
 - does not implement retrieval, memory, or storage logic
 
 #### `services/engine-python`
@@ -125,6 +161,7 @@ It is responsible for:
 - resource ingest
 - chunking
 - `L0 / L1 / L2` generation
+- stable node-path generation
 - embedding and vector recall
 - session context assembly
 - memory extraction and memory recall
@@ -176,6 +213,24 @@ Used for future integration with Zhiguang.
 - behavior events such as favorites, reading records, or historical questions can be synced later
 
 V1 does not require a full production-grade Zhiguang integration, but it must preserve clean extension points.
+
+### 5.3 Primary V1 Demo Story
+
+V1 should not present itself as "a document Q&A system that might integrate with Zhiguang later".
+
+The primary demo story should be:
+
+- a user asks a question in a knowledge-community scenario
+- the system combines:
+  - the current article or selected resource
+  - related resources or sections
+  - the user's prior interests or long-term memory
+  - the current session summary
+- the system returns a personalized answer
+- the system explains why those resources, memories, and session summaries were selected
+- the system shows the drill-down path from broad resource selection to final grounding
+
+Demo mode should simulate this story with seeded local resources and seeded user history, even before real Zhiguang integration exists.
 
 ## 6. Identity and Isolation Model
 
@@ -233,7 +288,7 @@ V1 should stay close to the following minimal schema:
 
 - `resource_nodes`
   - stores `L0 / L1 / L2` nodes
-  - includes `resource_id`, `level`, `parent_node_id`, text fields, embedding
+  - includes `resource_id`, `level`, `parent_node_id`, `node_path`, text fields, embedding
 
 - `sessions`
   - session header, mode, goal, summary, status
@@ -242,10 +297,10 @@ V1 should stay close to the following minimal schema:
   - one row per interaction turn
 
 - `memories`
-  - long-term memory entries with salience and embedding
+  - long-term memory entries with `memory_channel`, `memory_type`, salience, source references, and embedding
 
 - `retrieval_traces`
-  - retrieval candidates, selections, compression info, and metrics
+  - retrieval candidates, selections, drill-down trail, compression info, and metrics
 
 ### 7.3 Why a Unified `resource_nodes` Table
 
@@ -325,6 +380,12 @@ V1 public APIs should include:
 - `POST /api/v1/resources/import`
   - import demo resources or adapter-provided resources
 
+- `GET /api/v1/resources/{resourceId}/tree`
+  - browse the resource tree and its `L0 / L1 / L2` structure
+
+- `GET /api/v1/resources/nodes/{nodeId}`
+  - inspect a resource node and its path metadata
+
 - `POST /api/v1/sessions`
   - create a session
 
@@ -362,6 +423,7 @@ The core user flow should be:
    - recent session recall
    - memory recall
    - layered resource recall
+   - drill-down path construction
    - rerank and filtering
    - context compression
    - final context assembly
@@ -387,8 +449,18 @@ Example shape:
   "traceId": "uuid",
   "citations": [],
   "usedContexts": {
-    "resources": [],
-    "memories": [],
+    "resources": [
+      {
+        "nodePath": "resource://...",
+        "drilldownTrail": []
+      }
+    ],
+    "memories": [
+      {
+        "channel": "user|task_experience",
+        "type": "..."
+      }
+    ],
     "sessionSummary": "..."
   },
   "compressionSummary": {
@@ -406,6 +478,12 @@ However, these internal artifacts should be schema-first from the start:
 - retrieval traces
 - memory extraction result
 - context composition result
+
+The schema must be strong enough to express:
+
+- memory channel and memory type
+- resource node path
+- drill-down trail from `L0` to `L2`
 
 ## 13. Security Baseline
 
@@ -456,18 +534,20 @@ The following items must be completed in v1:
 
 1. internal `UUID` users and identity binding
 2. local demo resource import
-3. `L0 / L1 / L2` resource node generation
+3. `L0 / L1 / L2` resource node generation with stable `node_path`
 4. vector indexing with pgvector
 5. session creation and turn persistence
 6. lightweight session summary compression
-7. lightweight long-term memory extraction and recall
+7. dual-channel long-term memory extraction and recall
 8. fused query pipeline across resource/session/memory
-9. final answer generation
-10. retrieval trace inspection
-11. demo-chat runnable end-to-end
-12. Zhiguang adapter contract reserved
-13. Docker Compose-based local startup
-14. configuration split between `.env` and `yml`
+9. resource tree / node browse APIs
+10. final answer generation
+11. retrieval trace inspection with drill-down trail
+12. demo-chat runnable end-to-end
+13. Zhiguang-shaped demo story using local seeded data
+14. Zhiguang adapter contract reserved
+15. Docker Compose-based local startup
+16. configuration split between `.env` and `yml`
 
 ## 15. V1 Enhancements That Should Be Included If They Do Not Threaten Feasibility
 
@@ -493,6 +573,7 @@ The following are out of scope for v1:
 - general web crawling/search ingestion
 - heavy virtual filesystem semantics
 - generalized multi-provider model-routing
+- full virtual filesystem commands such as `ls/find/cd` as first-class user APIs
 
 ## 17. Acceptance Criteria
 
@@ -503,9 +584,11 @@ V1 is considered successful if the project can demonstrate the following:
 3. create a user and session
 4. ask questions through the demo chat
 5. receive answers grounded in retrieved resource/session/memory context
-6. inspect a retrieval trace for the answer
-7. persist the interaction as session state and memory
-8. preserve clear adapter boundaries for future Zhiguang integration
+6. inspect a retrieval trace that shows the `L0 -> L1 -> L2` drill-down path
+7. inspect addressable resource nodes through the public APIs
+8. persist the interaction as session state and both user/task-experience memory
+9. demonstrate a Zhiguang-shaped personalized Q&A story using local seeded data
+10. preserve clear adapter boundaries for future Zhiguang integration
 
 ## 18. OpenViking-Inspired but Intentionally Reduced
 
@@ -516,6 +599,7 @@ Borrowed ideas:
 - unified context abstraction
 - layered resource representation
 - drill-down retrieval
+- addressable context surfaces
 - observable retrieval process
 - session-end memory iteration
 
