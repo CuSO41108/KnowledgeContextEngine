@@ -8,7 +8,9 @@
 
 ## 1. Original Goal
 
-This project is not another agent-framework exercise.
+This project is agent-compatible, but it is not harness-first.
+
+The goal is not to avoid agent behavior. The goal is to avoid spending the main project effort on rebuilding generic agent harness loops, tool runtimes, or orchestration shells that are already covered by other work.
 
 Its primary goal is to demonstrate a reusable Context Engine that:
 
@@ -48,7 +50,7 @@ The three context layers are **not** three storage tiers. They are three context
   - Represents "what is happening in the current conversation".
 
 - **Memory Context**
-  - Long-term information accumulated across users and tasks, such as preferences, repeated interests, study focus, successful resource usage patterns, and reusable facts inferred from prior interaction.
+  - Long-term information accumulated across a user's sessions and tasks, such as preferences, repeated interests, study focus, successful resource usage patterns, and reusable facts inferred from prior interaction.
   - Represents "what the system should remember across sessions".
 
 ### 3.2 Memory Channels
@@ -64,6 +66,26 @@ V1 memory is split into two logical channels:
   - reusable information from prior sessions such as high-value resources, effective retrieval paths, frequently reused knowledge fragments, and patterns about which context combinations worked well
 
 Both channels may live in the same physical table in v1, but they must remain distinguishable by schema and retrieval logic.
+
+#### Minimum `memory_type` enum for v1
+
+To avoid turning the `memories` table into an unbounded dump of arbitrary notes, v1 should start with a constrained minimum enum.
+
+For **User Memory**:
+
+- `user_goal`
+- `topic_preference`
+- `explanation_preference`
+- `followup_pattern`
+
+For **Task / Experience Memory**:
+
+- `successful_resource`
+- `retrieval_pattern`
+- `reusable_fragment`
+- `prior_resolution`
+
+V1 should treat `memory_type` as a controlled schema field. New types should be added intentionally rather than inferred ad hoc.
 
 ### 3.3 Resource Granularity Layers
 
@@ -102,6 +124,19 @@ This means the system should be able to explain a query in terms of:
 3. which `L2` chunks were finally used
 
 This visible path is one of the main distinctions between this project and ordinary flat chunk-RAG systems.
+
+#### `node_path` stability rules
+
+`node_path` is a logical address, not a volatile database implementation detail.
+
+V1 should follow these stability rules:
+
+- reindexing should preserve `node_path` when the same logical resource hierarchy and section lineage still exist
+- content edits may change node content or embeddings without changing `node_path` if the logical section identity remains the same
+- if the hierarchy changes materially, the system may create a new `node_path`, but traces must still retain the historical `node_path` observed at answer time
+- trace payloads must store both `node_id` and `node_path` so historical explanations remain readable even after reindexing
+
+This keeps node addresses useful for drill-down and trace explanation instead of making them disposable indexing artifacts.
 
 ### 3.5 Goal Field
 
@@ -386,6 +421,9 @@ V1 public APIs should include:
 - `GET /api/v1/resources/nodes/{nodeId}`
   - inspect a resource node and its path metadata
 
+- `GET /api/v1/traces/{traceId}/nodes/{nodeId}`
+  - inspect the trace-scoped node snapshot used at answer time, even if the resource has since been reindexed
+
 - `POST /api/v1/sessions`
   - create a session
 
@@ -484,6 +522,15 @@ The schema must be strong enough to express:
 - memory channel and memory type
 - resource node path
 - drill-down trail from `L0` to `L2`
+
+Trace-exposed resource references must remain re-queryable.
+
+At minimum, a trace should include enough information to support:
+
+- current node lookup through `GET /api/v1/resources/nodes/{nodeId}`
+- historical trace-scoped lookup through `GET /api/v1/traces/{traceId}/nodes/{nodeId}`
+
+This is required so drill-down trace remains an inspectable system surface rather than a dead log.
 
 ## 13. Security Baseline
 
