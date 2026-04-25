@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gateway-java:
+    name: Gateway Java Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run gateway tests
+        run: mvn -f services/gateway-java/pom.xml test
+
+  demo-chat:
+    name: Demo Chat Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/demo-chat/package-lock.json
+
+      - name: Install demo chat dependencies
+        working-directory: apps/demo-chat
+        run: npm ci
+
+      - name: Run demo chat tests
+        working-directory: apps/demo-chat
+        run: npm test
+
+  engine-python:
+    name: Engine Python Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/engine-python/pyproject.toml
+
+      - name: Install engine dependencies
+        working-directory: services/engine-python
+        run: python -m pip install -e '.[dev]'
+
+      - name: Run engine tests with coverage gate
+        working-directory: services/engine-python
+        run: python -m pytest tests -v --ignore=tests/test_demo_story_e2e.py --cov=app.services --cov-fail-under=90
+
+  demo-story-e2e:
+    name: Demo Story E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/engine-python/pyproject.toml
+
+      - name: Install engine dependencies
+        run: python -m pip install -e './services/engine-python[dev]'
+
+      - name: Prepare demo environment
+        run: cp .env.example .env
+
+      - name: Start demo stack
+        run: docker compose up -d --build postgres redis engine-python gateway-java
+
+      - name: Seed demo data
+        run: docker compose run --rm --no-deps demo-bootstrap
+
+      - name: Run demo story end-to-end test
+        run: python -m pytest services/engine-python/tests/test_demo_story_e2e.py -v
+
+      - name: Print compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color postgres redis engine-python gateway-java demo-bootstrap
+
+      - name: Tear down demo stack
+        if: always()
+        run: docker compose down -v
