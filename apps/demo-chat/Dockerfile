@@ -1,7 +1,7 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
@@ -11,6 +11,7 @@ RUN npm run build
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
+ENV HOSTNAME=0.0.0.0
 ENV NODE_ENV=production
 ENV PORT=3000
 COPY --from=builder /app/.next/standalone ./

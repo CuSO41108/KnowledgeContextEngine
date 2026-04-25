@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=9",
+  "pytest-cov>=6",
 ]
 
 [tool.setuptools]

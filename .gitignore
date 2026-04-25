@@ -1,0 +1,6 @@
+.coverage
+.env
+.pytest_cache/
+**/__pycache__/
+services/engine-python/*.egg-info/
+services/gateway-java/target/

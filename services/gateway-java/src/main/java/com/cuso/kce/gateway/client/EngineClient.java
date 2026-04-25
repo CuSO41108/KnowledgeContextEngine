@@ -2,6 +2,7 @@ package com.cuso.kce.gateway.client;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -24,7 +25,11 @@ public class EngineClient {
     private final Map<String, String> providerDefaultResourceIds = new ConcurrentHashMap<>();
 
     public EngineClient(@Value("${kce.engine.base-url}") String engineBaseUrl) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(10_000);
+        requestFactory.setReadTimeout(30_000);
         this.restClient = RestClient.builder()
+            .requestFactory(requestFactory)
             .baseUrl(engineBaseUrl)
             .build();
     }
