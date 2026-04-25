@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trace-response.schema.json",
+  "type": "object",
+  "required": ["traceId", "question", "answer", "usedContexts", "compressionSummary", "nodeSnapshots"],
+  "properties": {
+    "traceId": {
+      "type": "string"
+    },
+    "question": {
+      "type": "string"
+    },
+    "answer": {
+      "type": "string"
+    },
+    "usedContexts": {
+      "type": "object",
+      "required": ["sessionSummary", "memories", "resources"],
+      "properties": {
+        "sessionSummary": {
+          "type": "string"
+        },
+        "memories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["channel", "type", "content"],
+            "properties": {
+              "channel": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["nodeId", "traceNodeId", "nodePath", "drilldownTrail"],
+            "properties": {
+              "nodeId": {
+                "type": "string"
+              },
+              "traceNodeId": {
+                "type": "string"
+              },
+              "nodePath": {
+                "type": "string"
+              },
+              "drilldownTrail": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "compressionSummary": {
+      "type": "object",
+      "required": ["beforeContextChars", "afterContextChars"],
+      "properties": {
+        "beforeContextChars": {
+          "type": "integer"
+        },
+        "afterContextChars": {
+          "type": "integer"
+        }
+      }
+    },
+    "nodeSnapshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["nodeId", "nodePath", "level", "ancestry", "snapshotContent"],
+        "properties": {
+          "nodeId": {
+            "type": "string"
+          },
+          "nodePath": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "ancestry": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["node_id", "node_path", "level"],
+              "properties": {
+                "node_id": {
+                  "type": "string"
+                },
+                "node_path": {
+                  "type": "string"
+                },
+                "level": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "snapshotContent": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

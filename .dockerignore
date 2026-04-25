@@ -1,0 +1,7 @@
+.env
+.git
+.pytest_cache
+**/__pycache__
+apps/demo-chat/.next
+apps/demo-chat/node_modules
+services/gateway-java/target

@@ -1,0 +1,8 @@
+server:
+  port: 8080
+
+kce:
+  auth:
+    api-key: ${KCE_AUTH_API_KEY:dev-gateway-key}
+  engine:
+    base-url: ${KCE_ENGINE_BASE_URL:http://engine-python:8000}

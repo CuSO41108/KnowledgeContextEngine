@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  engine-python:
+    build:
+      context: .
+      dockerfile: services/engine-python/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  gateway-java:
+    build:
+      context: .
+      dockerfile: services/gateway-java/Dockerfile
+    env_file:
+      - .env
+    environment:
+      KCE_AUTH_API_KEY: ${KCE_AUTH_API_KEY}
+      KCE_ENGINE_BASE_URL: ${KCE_ENGINE_BASE_URL}
+    depends_on:
+      engine-python:
+        condition: service_started
+    ports:
+      - "8080:8080"
+
+  demo-bootstrap:
+    build:
+      context: .
+      dockerfile: services/engine-python/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DEMO_API_KEY: ${DEMO_API_KEY}
+      DEMO_EXTERNAL_USER_ID: ${DEMO_EXTERNAL_USER_ID}
+      DEMO_PROVIDER: ${DEMO_PROVIDER}
+      DEMO_RESOURCE_DIR: ${DEMO_RESOURCE_DIR}
+      ENGINE_BASE_URL: http://engine-python:8000
+      GATEWAY_BASE_URL: http://gateway-java:8080
+    depends_on:
+      gateway-java:
+        condition: service_started
+    command: ["python", "/workspace/scripts/seed_demo_data.py"]
+    restart: "no"
+
+  demo-chat:
+    build:
+      context: ./apps/demo-chat
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      GATEWAY_API_KEY: ${DEMO_API_KEY}
+      GATEWAY_BASE_URL: http://gateway-java:8080
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_GATEWAY_BASE_URL: http://localhost:8080
+      PORT: 3000
+    depends_on:
+      demo-bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"
