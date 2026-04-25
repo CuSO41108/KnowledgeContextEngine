@@ -61,6 +61,15 @@ def _infer_memory_context(memory_item: str) -> dict[str, str]:
     return {"channel": "user", "type": "topic_preference", "content": memory_item}
 
 
+def _ensure_terminal_punctuation(text: str) -> str:
+    normalized = text.strip()
+    if not normalized:
+        return ""
+    if normalized.endswith((".", "!", "?", "。", "！", "？")):
+        return normalized
+    return normalized + "."
+
+
 def _build_human_readable_answer(
     *,
     question: str,
@@ -81,7 +90,7 @@ def _build_human_readable_answer(
         answer_parts.append("Zhiguang reply:")
 
     if primary_snippet:
-        answer_parts.append(primary_snippet.rstrip(".") + ".")
+        answer_parts.append(_ensure_terminal_punctuation(primary_snippet))
 
     if is_cache_aside_question:
         answer_parts.append(
@@ -93,7 +102,7 @@ def _build_human_readable_answer(
             )
 
     if not answer_parts and question.strip():
-        answer_parts.append(question.strip().rstrip("?") + ".")
+        answer_parts.append(_ensure_terminal_punctuation(question.strip().rstrip("?？")))
 
     return " ".join(part.strip() for part in answer_parts if part.strip())
 

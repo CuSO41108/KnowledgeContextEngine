@@ -23,7 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class EngineClient {
 
     private final RestClient restClient;
-    private final Map<String, String> providerDefaultResourceIds = new ConcurrentHashMap<>();
+    private final Map<String, List<String>> providerResourceIds = new ConcurrentHashMap<>();
+    private final ResourceCandidateSelector resourceCandidateSelector = new ResourceCandidateSelector();
 
     public EngineClient(@Value("${kce.engine.base-url}") String engineBaseUrl) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
@@ -62,7 +63,7 @@ public class EngineClient {
         }
 
         if (!resourceIds.isEmpty()) {
-            providerDefaultResourceIds.put(provider, resourceIds.get(resourceIds.size() - 1));
+            providerResourceIds.put(provider, List.copyOf(resourceIds));
         }
 
         Map<String, Object> response = new LinkedHashMap<>();
@@ -80,10 +81,11 @@ public class EngineClient {
         String message,
         String goal
     ) {
-        String resourceId = providerDefaultResourceIds.get(provider);
-        if (resourceId == null) {
-            throw new IllegalStateException("No default resource imported for provider: " + provider);
+        List<String> resourceIds = providerResourceIds.get(provider);
+        if (resourceIds == null || resourceIds.isEmpty()) {
+            throw new IllegalStateException("No resources imported for provider: " + provider);
         }
+        String resourceId = selectResourceId(resourceIds, message, goal);
 
         List<Map<String, String>> turns = List.of(Map.of("role", "user", "content", message));
         Map<String, Object> summaryResponse = post("/internal/session/summarize", Map.of(
@@ -113,6 +115,38 @@ public class EngineClient {
             .uri("/internal/traces/{traceId}", traceId)
             .retrieve()
             .body(Map.class);
+    }
+
+    private String selectResourceId(List<String> resourceIds, String message, String goal) {
+        if (resourceIds.size() == 1) {
+            return resourceIds.getFirst();
+        }
+
+        List<ResourceCandidateSelector.ResourceCandidate> candidates = resourceIds.stream()
+            .map(resourceId -> new ResourceCandidateSelector.ResourceCandidate(
+                resourceId,
+                loadResourceEvidenceTexts(resourceId)
+            ))
+            .toList();
+
+        return resourceCandidateSelector.selectResource(goal, message, candidates);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> loadResourceEvidenceTexts(String resourceId) {
+        Map<String, Object> treeResponse = restClient.get()
+            .uri("/internal/resources/{resourceId}/tree", resourceId)
+            .retrieve()
+            .body(Map.class);
+
+        List<Map<String, Object>> nodes = (List<Map<String, Object>>) treeResponse.getOrDefault("nodes", List.of());
+        List<String> evidenceTexts = new ArrayList<>();
+        evidenceTexts.add(resourceId);
+        for (Map<String, Object> node : nodes) {
+            evidenceTexts.add(String.valueOf(node.getOrDefault("title", "")));
+            evidenceTexts.add(String.valueOf(node.getOrDefault("nodePath", "")));
+        }
+        return evidenceTexts;
     }
 
     @SuppressWarnings("unchecked")
