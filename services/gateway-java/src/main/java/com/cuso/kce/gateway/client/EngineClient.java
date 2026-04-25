@@ -9,6 +9,7 @@ import org.springframework.web.client.RestClient;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.stream.Stream;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -35,11 +36,14 @@ public class EngineClient {
     }
 
     public Map<String, Object> importResources(String provider, String resourceDir) throws IOException {
-        List<Path> markdownFiles = Files.walk(Path.of(resourceDir))
-            .filter(Files::isRegularFile)
-            .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".md"))
-            .sorted(Comparator.naturalOrder())
-            .toList();
+        List<Path> markdownFiles;
+        try (Stream<Path> paths = Files.walk(Path.of(resourceDir))) {
+            markdownFiles = paths
+                .filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".md"))
+                .sorted(Comparator.naturalOrder())
+                .toList();
+        }
 
         List<String> resourceIds = new ArrayList<>();
         for (Path markdownFile : markdownFiles) {

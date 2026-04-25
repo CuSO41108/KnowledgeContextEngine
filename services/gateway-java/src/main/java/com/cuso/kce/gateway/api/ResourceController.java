@@ -14,13 +14,19 @@ import java.util.Map;
 public class ResourceController {
 
     private final EngineClient engineClient;
+    private final ResourceImportPathGuard resourceImportPathGuard;
 
-    public ResourceController(EngineClient engineClient) {
+    public ResourceController(
+        EngineClient engineClient,
+        ResourceImportPathGuard resourceImportPathGuard
+    ) {
         this.engineClient = engineClient;
+        this.resourceImportPathGuard = resourceImportPathGuard;
     }
 
     @PostMapping("/import")
     public Map<String, Object> importResources(@RequestBody ResourceImportRequest request) throws IOException {
+        resourceImportPathGuard.validate(request.resourceDir());
         return engineClient.importResources(request.provider(), request.resourceDir());
     }
 
