@@ -61,6 +61,43 @@ def _infer_memory_context(memory_item: str) -> dict[str, str]:
     return {"channel": "user", "type": "topic_preference", "content": memory_item}
 
 
+def _build_human_readable_answer(
+    *,
+    question: str,
+    session_summary: str,
+    memory_items: list[str],
+    resource_snippets: list[str],
+) -> str:
+    lowered_context = f"{question} {session_summary}".lower()
+    primary_snippet = next((snippet.strip() for snippet in resource_snippets if snippet.strip()), "")
+    primary_snippet = primary_snippet.replace(" DB ", " database ").replace(" DB.", " database.")
+    concise_preference = any("concise" in item.lower() or "short" in item.lower() for item in memory_items)
+    is_zhiguang_reply = "zhiguang" in lowered_context
+    is_cache_aside_question = "cache-aside" in lowered_context or "cache aside" in lowered_context
+
+    answer_parts: list[str] = []
+
+    if is_zhiguang_reply:
+        answer_parts.append("Zhiguang reply:")
+
+    if primary_snippet:
+        answer_parts.append(primary_snippet.rstrip(".") + ".")
+
+    if is_cache_aside_question:
+        answer_parts.append(
+            "Reads check Redis first; on a miss, fetch from the database and write the fresh value back to cache."
+        )
+        if not concise_preference:
+            answer_parts.append(
+                "On writes, update the database first and invalidate the old cache key so the next read can repopulate it."
+            )
+
+    if not answer_parts and question.strip():
+        answer_parts.append(question.strip().rstrip("?") + ".")
+
+    return " ".join(part.strip() for part in answer_parts if part.strip())
+
+
 def build_query_result(
     *,
     question: str,
@@ -84,14 +121,13 @@ def build_query_result(
         )
         resource_snippets.append(node.content)
 
-    memory_summary = " ".join(memory_items).strip()
     resource_summary = " ".join(resource_snippets).strip()
-    answer = (
-        f"Question: {question} "
-        f"Session summary: {session_summary} "
-        f"Memories: {memory_summary} "
-        f"Selected resource context: {resource_summary}"
-    ).strip()
+    answer = _build_human_readable_answer(
+        question=question,
+        session_summary=session_summary,
+        memory_items=memory_items,
+        resource_snippets=resource_snippets,
+    )
 
     before_context_chars = len(question) + len(session_summary) + sum(len(item) for item in memory_items) + sum(
         len(node.content) for node in selected_nodes

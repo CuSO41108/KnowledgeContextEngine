@@ -23,9 +23,9 @@ def test_build_query_result_returns_traceable_used_context_resources() -> None:
         trace_id="trace-001",
     )
 
-    assert "Zhiguang" in result.answer
-    assert "concise Java" in result.answer
-    assert "Redis cache-aside keeps DB authoritative." in result.answer
+    assert result.answer.startswith("Zhiguang reply:")
+    assert "Redis cache-aside" in result.answer
+    assert "database" in result.answer.lower()
     assert result.used_contexts["sessionSummary"] == "Draft a concise Java reply to Zhiguang."
     assert result.used_contexts["memories"][0]["channel"] == "user"
     assert result.used_contexts["memories"][0]["type"] == "explanation_preference"
@@ -38,6 +38,32 @@ def test_build_query_result_returns_traceable_used_context_resources() -> None:
         "resource://zhiguang-cache-doc/l2/s000/000",
     ]
     assert result.compression_summary["beforeContextChars"] > result.compression_summary["afterContextChars"]
+
+
+def test_build_query_result_returns_human_readable_answer() -> None:
+    nodes = build_resource_nodes(
+        resource_slug="zhiguang-cache-doc",
+        markdown="# Redis Cache\n## Cache Aside\nRedis cache-aside keeps DB authoritative.",
+    )
+    l2_node = next(node for node in nodes if node.level == "l2")
+
+    result = build_query_result(
+        question="How should I reply on Zhiguang about Redis cache-aside?",
+        session_summary="Draft a concise Java reply to Zhiguang.",
+        memory_items=[
+            "User prefers concise Java explanations.",
+            "Helpful resource: resource://zhiguang-cache-doc/l2/s000/000",
+        ],
+        selected_nodes=[l2_node],
+        trace_id="trace-002",
+    )
+
+    assert result.answer.startswith("Zhiguang reply:")
+    assert "Question:" not in result.answer
+    assert "Session summary:" not in result.answer
+    assert "Memories:" not in result.answer
+    assert "Redis cache-aside" in result.answer
+    assert "database" in result.answer.lower()
 
 
 def test_context_query_route_returns_traceable_resources() -> None:
