@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gateway-java:
+    name: Gateway Java Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run gateway tests
+        run: mvn -f services/gateway-java/pom.xml test
+
+  demo-chat:
+    name: Demo Chat Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/demo-chat/package-lock.json
+
+      - name: Install demo chat dependencies
+        working-directory: apps/demo-chat
+        run: npm ci
+
+      - name: Run demo chat tests
+        working-directory: apps/demo-chat
+        run: npm test
+
+  engine-python:
+    name: Engine Python Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/engine-python/pyproject.toml
+
+      - name: Install engine dependencies
+        working-directory: services/engine-python
+        run: python -m pip install -e .[dev]
+
+      - name: Run engine tests with coverage gate
+        working-directory: services/engine-python
+        run: python -m pytest tests -v --cov=app.services --cov-fail-under=90
