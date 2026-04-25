@@ -1,6 +1,7 @@
 package com.cuso.kce.gateway;
 
 import com.cuso.kce.gateway.api.ResourceController;
+import com.cuso.kce.gateway.api.ResourceImportPathGuard;
 import com.cuso.kce.gateway.client.EngineClient;
 import com.cuso.kce.gateway.config.ApiKeyFilter;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Map;
 
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -24,8 +26,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ResourceController.class)
-@Import({ApiKeyFilter.class, ResourceControllerTest.TestConfig.class})
-@TestPropertySource(properties = "kce.auth.api-key=test-gateway-key")
+@Import({
+    ApiKeyFilter.class,
+    ResourceImportPathGuard.class,
+    ResourceControllerTest.TestConfig.class
+})
+@TestPropertySource(properties = {
+    "kce.auth.api-key=test-gateway-key",
+    "kce.import.base-dir=data"
+})
 class ResourceControllerTest {
 
     @Autowired
@@ -62,6 +71,24 @@ class ResourceControllerTest {
             .andExpect(jsonPath("$.resourceIds[0]").value("redis-cache"));
 
         verify(engineClient).importResources("demo_local", "data/demo-resources");
+    }
+
+    @Test
+    void importResourcesRejectsPathsOutsideConfiguredImportRoot() throws Exception {
+        mockMvc.perform(
+                post("/api/v1/resources/import")
+                    .header("X-API-Key", "test-gateway-key")
+                    .contentType(APPLICATION_JSON)
+                    .content("""
+                        {
+                          "provider": "demo_local",
+                          "resourceDir": "../outside"
+                        }
+                        """)
+            )
+            .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(engineClient);
     }
 
     @TestConfiguration
