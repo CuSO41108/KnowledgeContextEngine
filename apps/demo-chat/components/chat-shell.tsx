@@ -42,6 +42,7 @@ function ChatSession(props: {
     clearError,
     error,
     messages,
+    setMessages,
     sendMessage,
     status,
   } = useChat<DemoChatMessage>({
@@ -73,6 +74,9 @@ function ChatSession(props: {
 
     const nextValidationError = validatePromptInput(input);
     if (nextValidationError) {
+      clearError();
+      setTrace(null);
+      setMessages([]);
       setValidationError(nextValidationError);
       return;
     }

@@ -26,10 +26,7 @@ public class EngineClient {
     private final Map<String, ResourceTreeMetadata> resourceTreeMetadataById = new ConcurrentHashMap<>();
     private final ResourceCandidateSelector resourceCandidateSelector = new ResourceCandidateSelector();
 
-    private record ResourceTreeMetadata(
-        List<String> evidenceTexts,
-        List<String> selectedResourcePaths
-    ) {
+    private record ResourceTreeMetadata(List<String> evidenceTexts) {
     }
 
     public EngineClient(@Value("${kce.engine.base-url}") String engineBaseUrl) {
@@ -101,11 +98,9 @@ public class EngineClient {
         ));
         String sessionSummary = String.valueOf(summaryResponse.get("summary"));
 
-        List<String> selectedResourcePaths = getResourceTreeMetadata(resourceId).selectedResourcePaths();
         Map<String, Object> memoryResponse = post("/internal/memory/extract", Map.of(
             "session_goal", goal,
-            "turns", turns,
-            "selected_resource_paths", selectedResourcePaths
+            "turns", turns
         ));
         List<String> memoryItems = extractMemoryContents(memoryResponse);
 
@@ -161,28 +156,14 @@ public class EngineClient {
         List<Map<String, Object>> nodes = (List<Map<String, Object>>) treeResponse.getOrDefault("nodes", List.of());
         List<String> evidenceTexts = new ArrayList<>();
         evidenceTexts.add(resourceId);
-        List<String> l2Paths = new ArrayList<>();
-        List<String> l1Paths = new ArrayList<>();
-
         for (Map<String, Object> node : nodes) {
             evidenceTexts.add(readNodeField(node, "title"));
 
             String nodePath = readNodeField(node, "nodePath", "node_path");
             evidenceTexts.add(nodePath);
-
-            String level = readNodeField(node, "level");
-            if ("l2".equals(level) && !nodePath.isBlank()) {
-                l2Paths.add(nodePath);
-            } else if ("l1".equals(level) && !nodePath.isBlank()) {
-                l1Paths.add(nodePath);
-            }
         }
 
-        List<String> selectedResourcePaths = !l2Paths.isEmpty()
-            ? List.of(l2Paths.getFirst())
-            : (!l1Paths.isEmpty() ? List.of(l1Paths.getFirst()) : List.of());
-
-        return new ResourceTreeMetadata(List.copyOf(evidenceTexts), selectedResourcePaths);
+        return new ResourceTreeMetadata(List.copyOf(evidenceTexts));
     }
 
     private String readNodeField(Map<String, Object> node, String... keys) {

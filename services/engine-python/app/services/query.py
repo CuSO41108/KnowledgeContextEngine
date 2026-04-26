@@ -61,6 +61,19 @@ def _infer_memory_context(memory_item: str) -> dict[str, str]:
     return {"channel": "user", "type": "topic_preference", "content": memory_item}
 
 
+def _build_selected_resource_memory_items(selected_nodes: list[ResourceNode]) -> list[str]:
+    seen_paths: set[str] = set()
+    selected_memory_items: list[str] = []
+
+    for node in selected_nodes:
+        if node.node_path in seen_paths:
+            continue
+        seen_paths.add(node.node_path)
+        selected_memory_items.append(f"Helpful resource: {node.node_path}")
+
+    return selected_memory_items
+
+
 def _ensure_terminal_punctuation(text: str) -> str:
     normalized = text.strip()
     if not normalized:
@@ -117,6 +130,12 @@ def build_query_result(
 ) -> QueryResult:
     resource_contexts: list[dict[str, object]] = []
     resource_snippets: list[str] = []
+    selected_resource_memory_items = _build_selected_resource_memory_items(selected_nodes)
+    contextual_memory_items = [
+        memory_item
+        for memory_item in memory_items
+        if not memory_item.lower().startswith("helpful resource:")
+    ] + selected_resource_memory_items
 
     for node in selected_nodes:
         node_id = build_node_id(resource_slug=node.resource_slug, stable_key=node.stable_key)
@@ -134,11 +153,11 @@ def build_query_result(
     answer = _build_human_readable_answer(
         question=question,
         session_summary=session_summary,
-        memory_items=memory_items,
+        memory_items=contextual_memory_items,
         resource_snippets=resource_snippets,
     )
 
-    before_context_chars = len(question) + len(session_summary) + sum(len(item) for item in memory_items) + sum(
+    before_context_chars = len(question) + len(session_summary) + sum(len(item) for item in contextual_memory_items) + sum(
         len(node.content) for node in selected_nodes
     )
     after_context_chars = len(session_summary) + len(resource_summary)
@@ -147,7 +166,7 @@ def build_query_result(
         answer=answer,
         used_contexts={
             "sessionSummary": session_summary,
-            "memories": [_infer_memory_context(memory_item) for memory_item in memory_items],
+            "memories": [_infer_memory_context(memory_item) for memory_item in contextual_memory_items],
             "resources": resource_contexts,
         },
         compression_summary={

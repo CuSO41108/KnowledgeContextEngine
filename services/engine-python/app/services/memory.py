@@ -18,6 +18,17 @@ def _normalize_turn_text(turns: list[dict[str, str]]) -> str:
     return " ".join(turn.get("content", "") for turn in turns)
 
 
+CONCISE_HINTS = (
+    "concise",
+    "brief",
+    "short",
+    "简短",
+    "简洁",
+    "简要",
+    "简明",
+)
+
+
 def extract_memory_candidates(
     *,
     session_goal: str,
@@ -39,9 +50,9 @@ def extract_memory_candidates(
             )
         )
 
-    if "concise" in lowered_turn_text or "brief" in lowered_turn_text:
+    if any(hint in lowered_turn_text or hint in all_turn_text for hint in CONCISE_HINTS):
         preference_bits: list[str] = []
-        if "concise" in lowered_turn_text:
+        if any(hint in lowered_turn_text or hint in all_turn_text for hint in CONCISE_HINTS):
             preference_bits.append("concise")
         if "java" in lowered_turn_text:
             preference_bits.append("Java-focused")
@@ -82,6 +93,16 @@ def summarize_session(*, session_goal: str, turns: list[dict[str, str]]) -> str:
             relevant_lines.append(content)
 
     if not relevant_lines:
+        fallback_turn = next(
+            (
+                turn.get("content", "").strip()
+                for turn in reversed(turns)
+                if turn.get("role") == "user" and turn.get("content", "").strip()
+            ),
+            "",
+        )
+        if fallback_turn:
+            return f"{goal_text} Key context: {fallback_turn}".strip()
         return goal_text
 
     return f"{goal_text} Key context: {' '.join(relevant_lines)}"
