@@ -128,4 +128,19 @@ describe("normalizeQueryResponse", () => {
 
     expect(normalized.sessionSummary).toBe("");
   });
+
+  it("reports the correct string expectation when empty strings are allowed", () => {
+    expect(() =>
+      normalizeQueryResponse({
+        answer: "Redis cache-aside keeps reads fast.",
+        traceId: "trace-demo-003",
+        usedContexts: {
+          resources: [],
+          memories: [],
+          sessionSummary: 42,
+        },
+        compressionSummary: { beforeContextChars: 10, afterContextChars: 5 },
+      }),
+    ).toThrowError("Expected sessionSummary to be a string.");
+  });
 });

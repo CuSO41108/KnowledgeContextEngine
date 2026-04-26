@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -70,7 +71,7 @@ final class ResourceCandidateSelector {
         String candidateText = candidate.evidenceTexts().stream()
             .filter(Objects::nonNull)
             .map(text -> text.toLowerCase(Locale.ROOT))
-            .reduce("", (left, right) -> left + "\n" + right);
+            .collect(Collectors.joining("\n"));
 
         int score = 0;
         for (String term : queryTerms) {

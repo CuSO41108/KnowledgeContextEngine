@@ -57,7 +57,8 @@ function readString(
     typeof value !== "string" ||
     (!options?.allowEmpty && value.length === 0)
   ) {
-    throw new Error(`Expected ${key} to be a non-empty string.`);
+    const expected = options?.allowEmpty ? "a string" : "a non-empty string";
+    throw new Error(`Expected ${key} to be ${expected}.`);
   }
   return value;
 }
