@@ -207,3 +207,40 @@ def test_context_query_route_prefers_specific_subtopic_when_question_excludes_br
     assert payload["usedContexts"]["resources"][0]["nodePath"] == (
         "resource://zhiguang-search-doc/l2/s001/000"
     )
+
+
+def test_context_query_route_prefers_queue_delivery_subtopic_when_question_excludes_overview() -> None:
+    client = TestClient(app)
+    index_response = client.post(
+        "/internal/resources/index",
+        json={
+            "resource_slug": "zhiguang-queue-doc",
+            "markdown": (
+                "# Zhiguang Queue Guide\n"
+                "## 消息队列 / Message Queue\n"
+                "A message queue decouples producers and consumers so burst traffic can be buffered instead of failing synchronous calls. 在中文语境里，消息队列常用来削峰填谷、异步化和解耦。\n\n"
+                "## 至少一次投递与幂等 / At-least-once Delivery and Idempotency\n"
+                "At-least-once delivery means consumers may receive duplicate messages, so handlers should be idempotent and retry-safe. Dead-letter queues help isolate poison messages instead of blocking the whole pipeline."
+            ),
+        },
+    )
+
+    assert index_response.status_code == 200
+
+    query_response = client.post(
+        "/internal/context/query",
+        json={
+            "question": "我只想解释重复消费、幂等和死信队列，不展开削峰填谷。",
+            "resource_id": "zhiguang-queue-doc",
+            "session_summary": "写一条关于消息队列的 Zhiguang 回复 Key context: 我只想解释重复消费、幂等和死信队列，不展开削峰填谷。",
+            "memory_items": [],
+        },
+    )
+
+    assert query_response.status_code == 200
+    payload = query_response.json()
+
+    assert "At-least-once delivery" in payload["answer"]
+    assert payload["usedContexts"]["resources"][0]["nodePath"] == (
+        "resource://zhiguang-queue-doc/l2/s001/000"
+    )
