@@ -119,6 +119,20 @@ public class EngineClient {
             .body(Map.class);
     }
 
+    public Map<String, Object> getTraceNodeSnapshot(String traceId, String nodeId) {
+        return restClient.get()
+            .uri("/internal/traces/{traceId}/nodes/{nodeId}", traceId, nodeId)
+            .retrieve()
+            .body(Map.class);
+    }
+
+    public Map<String, Object> getResourceNode(String nodeId) {
+        return restClient.get()
+            .uri("/internal/resources/nodes/{nodeId}", nodeId)
+            .retrieve()
+            .body(Map.class);
+    }
+
     private String selectResourceId(List<String> resourceIds, String message, String goal) {
         if (resourceIds.size() == 1) {
             return resourceIds.getFirst();
@@ -158,6 +172,7 @@ public class EngineClient {
         evidenceTexts.add(resourceId);
         for (Map<String, Object> node : nodes) {
             evidenceTexts.add(readNodeField(node, "title"));
+            evidenceTexts.add(readNodeField(node, "content"));
 
             String nodePath = readNodeField(node, "nodePath", "node_path");
             evidenceTexts.add(nodePath);

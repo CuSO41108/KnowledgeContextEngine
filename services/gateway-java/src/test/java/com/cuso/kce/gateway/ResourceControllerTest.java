@@ -21,6 +21,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -89,6 +90,27 @@ class ResourceControllerTest {
             .andExpect(status().isBadRequest());
 
         verifyNoInteractions(engineClient);
+    }
+
+    @Test
+    void resourceNodeLookupReturnsCurrentNodeSnapshot() throws Exception {
+        when(engineClient.getResourceNode("zhiguang-cache:l2:s000:000"))
+            .thenReturn(Map.of(
+                "nodeId", "zhiguang-cache:l2:s000:000",
+                "nodePath", "resource://zhiguang-cache/l2/s000/000",
+                "level", "l2",
+                "ancestry", List.of(
+                    Map.of("node_id", "zhiguang-cache:l1:s000", "node_path", "resource://zhiguang-cache/l1/s000", "level", "l1")
+                ),
+                "snapshotContent", "Redis cache-aside keeps DB authoritative."
+            ));
+
+        mockMvc.perform(get("/api/v1/resources/nodes/zhiguang-cache:l2:s000:000").header("X-API-Key", "test-gateway-key"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.nodeId").value("zhiguang-cache:l2:s000:000"))
+            .andExpect(jsonPath("$.snapshotContent").value("Redis cache-aside keeps DB authoritative."));
+
+        verify(engineClient).getResourceNode("zhiguang-cache:l2:s000:000");
     }
 
     @TestConfiguration
