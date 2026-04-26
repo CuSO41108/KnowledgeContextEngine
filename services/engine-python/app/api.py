@@ -244,12 +244,68 @@ def _build_query_terms(*values: str) -> list[str]:
     return terms
 
 
-def _score_query_node(node: ResourceNode, query_terms: list[str]) -> int:
-    haystack = f"{node.title}\n{node.content}\n{node.node_path}".lower()
+def _build_excluded_query_terms(value: str) -> list[str]:
+    excluded_segments = findall(r"(?:不展开|不讲|不讨论|不解释)([^。；;!?！？]+)", value)
+    if not excluded_segments:
+        return []
+    return _build_query_terms(*excluded_segments)
+
+
+def _extract_summary_focus(session_summary: str) -> str:
+    if "Key context:" not in session_summary:
+        return session_summary
+    return session_summary.split("Key context:", maxsplit=1)[1].strip()
+
+
+def _score_terms_against_node(
+    *,
+    title_haystack: str,
+    content_haystack: str,
+    query_terms: list[str],
+    title_weight: int,
+    content_weight: int,
+) -> int:
     score = 0
     for term in query_terms:
-        if term.lower() in haystack:
-            score += 2 + min(len(term), 10)
+        normalized_term = term.lower()
+        if normalized_term in title_haystack:
+            score += title_weight + min(len(term), 10)
+        elif normalized_term in content_haystack:
+            score += content_weight + min(len(term), 10)
+    return score
+
+
+def _score_query_node(
+    node: ResourceNode,
+    *,
+    question_terms: list[str],
+    summary_terms: list[str],
+    excluded_terms: list[str],
+) -> int:
+    title_haystack = node.title.lower()
+    content_haystack = f"{node.content}\n{node.node_path}".lower()
+
+    score = _score_terms_against_node(
+        title_haystack=title_haystack,
+        content_haystack=content_haystack,
+        query_terms=question_terms,
+        title_weight=9,
+        content_weight=6,
+    )
+    score += _score_terms_against_node(
+        title_haystack=title_haystack,
+        content_haystack=content_haystack,
+        query_terms=summary_terms,
+        title_weight=4,
+        content_weight=2,
+    )
+    score -= _score_terms_against_node(
+        title_haystack=title_haystack,
+        content_haystack=content_haystack,
+        query_terms=excluded_terms,
+        title_weight=11,
+        content_weight=7,
+    )
     return score
 
 
@@ -263,13 +319,23 @@ def _pick_query_nodes_for_prompt(
     if not candidate_nodes:
         return []
 
-    query_terms = _build_query_terms(question, session_summary)
-    if not query_terms:
+    question_terms = _build_query_terms(question)
+    summary_terms = _build_query_terms(_extract_summary_focus(session_summary))
+    excluded_terms = _build_excluded_query_terms(question)
+    if not question_terms and not summary_terms:
         return [candidate_nodes[0]]
 
     best_node = max(
         candidate_nodes,
-        key=lambda node: (_score_query_node(node, query_terms), -node.ordinal),
+        key=lambda node: (
+            _score_query_node(
+                node,
+                question_terms=question_terms,
+                summary_terms=summary_terms,
+                excluded_terms=excluded_terms,
+            ),
+            -node.ordinal,
+        ),
     )
     return [best_node]
 
