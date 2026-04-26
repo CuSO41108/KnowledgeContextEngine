@@ -42,8 +42,8 @@ def main() -> int:
         import_response.raise_for_status()
         imported_payload = import_response.json()
 
-        if imported_payload.get("importedCount", 0) < 2:
-            raise RuntimeError(f"Expected at least 2 imported demo resources, got {imported_payload!r}")
+        if imported_payload.get("importedCount", 0) < 5:
+            raise RuntimeError(f"Expected at least 5 imported demo resources, got {imported_payload!r}")
 
         query_response = client.post(
             f"{gateway_base_url}/api/v1/sessions/demo-history/query",

@@ -123,9 +123,22 @@ export function TracePanel({ trace }: TracePanelProps) {
 
           <PanelSection title="Session Summary">
             <ItemCard>
-              <p style={{ color: "#18324f", lineHeight: 1.6, margin: 0 }}>
-                {trace.sessionSummary}
-              </p>
+              {trace.sessionSummary ? (
+                <p style={{ color: "#18324f", lineHeight: 1.6, margin: 0 }}>
+                  {trace.sessionSummary}
+                </p>
+              ) : (
+                <p
+                  style={{
+                    color: "#5f7288",
+                    fontStyle: "italic",
+                    lineHeight: 1.6,
+                    margin: 0,
+                  }}
+                >
+                  No compressed session summary yet for this turn.
+                </p>
+              )}
             </ItemCard>
           </PanelSection>
 

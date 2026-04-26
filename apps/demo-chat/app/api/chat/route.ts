@@ -5,12 +5,11 @@ import {
 
 import { extractMessageText } from "@/lib/chat-helpers";
 import type { DemoChatMessage } from "@/lib/chat-types";
+import { resolveRouteGoal, resolveRouteSessionId } from "@/lib/demo-chat-config";
 import { buildGatewayUrl, normalizeQueryResponse } from "@/lib/gateway-client";
 
 const DEFAULT_EXTERNAL_USER_ID = "demo-user-1";
-const DEFAULT_GOAL = "write a Zhiguang reply about Redis cache-aside";
 const DEFAULT_PROVIDER = "demo_local";
-const DEFAULT_SESSION_ID = "demo-session";
 
 type ChatRequestBody = {
   externalUserId?: string;
@@ -57,10 +56,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const sessionId =
-    typeof body.sessionId === "string" && body.sessionId.trim().length > 0
-      ? body.sessionId.trim()
-      : DEFAULT_SESSION_ID;
+  const sessionId = resolveRouteSessionId(body.sessionId);
 
   const gatewayUrl = `${buildGatewayUrl()}/api/v1/sessions/${encodeURIComponent(sessionId)}/query`;
   const apiKey =
@@ -85,10 +81,7 @@ export async function POST(request: Request) {
           ? body.externalUserId.trim()
           : DEFAULT_EXTERNAL_USER_ID,
       message: messageText,
-      goal:
-        typeof body.goal === "string" && body.goal.trim().length > 0
-          ? body.goal.trim()
-          : DEFAULT_GOAL,
+      goal: resolveRouteGoal(body.goal),
     }),
     cache: "no-store",
   });

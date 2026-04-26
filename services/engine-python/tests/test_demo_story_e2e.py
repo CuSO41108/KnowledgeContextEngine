@@ -37,3 +37,28 @@ def test_demo_story_returns_personalized_traceable_answer() -> None:
         for memory in payload["usedContexts"]["memories"]
     )
     assert payload["usedContexts"]["resources"][0]["traceNodeId"]
+
+
+def test_demo_story_routes_tracing_question_to_tracing_resource() -> None:
+    gateway_base_url = os.getenv("KCE_E2E_BASE_URL", "http://localhost:8080").rstrip("/")
+    api_key = os.getenv("KCE_E2E_API_KEY", "demo-key")
+
+    response = httpx.post(
+        f"{gateway_base_url}/api/v1/sessions/demo-session/query",
+        headers={"X-API-Key": api_key},
+        json={
+            "provider": "demo_local",
+            "externalUserId": "demo-user-1",
+            "message": "我想在知广项目上解释分布式追踪，请覆盖 trace、span、调用链、采样和日志关联。",
+            "goal": "写一条关于分布式追踪的 Zhiguang 回复",
+        },
+        timeout=10,
+    )
+
+    payload = response.json()
+    resource = payload["usedContexts"]["resources"][0]
+
+    assert response.status_code == 200
+    assert "Distributed tracing" in payload["answer"]
+    assert "。." not in payload["answer"]
+    assert resource["nodePath"] == "resource://m-zhiguang-distributed-tracing-guide/l2/s001/000"

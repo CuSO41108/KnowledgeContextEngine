@@ -12,7 +12,6 @@ import java.nio.file.Path;
 import java.util.stream.Stream;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -23,7 +22,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public class EngineClient {
 
     private final RestClient restClient;
-    private final Map<String, String> providerDefaultResourceIds = new ConcurrentHashMap<>();
+    private final Map<String, List<String>> providerResourceIds = new ConcurrentHashMap<>();
+    private final Map<String, ResourceTreeMetadata> resourceTreeMetadataById = new ConcurrentHashMap<>();
+    private final ResourceCandidateSelector resourceCandidateSelector = new ResourceCandidateSelector();
+
+    private record ResourceTreeMetadata(
+        List<String> evidenceTexts,
+        List<String> selectedResourcePaths
+    ) {
+    }
 
     public EngineClient(@Value("${kce.engine.base-url}") String engineBaseUrl) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
@@ -49,7 +56,7 @@ public class EngineClient {
         for (Path markdownFile : markdownFiles) {
             String resourceId = slugify(stripExtension(markdownFile.getFileName().toString()));
             String markdown = Files.readString(markdownFile);
-            restClient.post()
+            Map<String, Object> indexResponse = restClient.post()
                 .uri("/internal/resources/index")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of(
@@ -57,12 +64,13 @@ public class EngineClient {
                     "markdown", markdown
                 ))
                 .retrieve()
-                .toEntity(Map.class);
+                .body(Map.class);
+            resourceTreeMetadataById.put(resourceId, buildResourceTreeMetadata(resourceId, indexResponse));
             resourceIds.add(resourceId);
         }
 
         if (!resourceIds.isEmpty()) {
-            providerDefaultResourceIds.put(provider, resourceIds.get(resourceIds.size() - 1));
+            providerResourceIds.put(provider, List.copyOf(resourceIds));
         }
 
         Map<String, Object> response = new LinkedHashMap<>();
@@ -80,10 +88,11 @@ public class EngineClient {
         String message,
         String goal
     ) {
-        String resourceId = providerDefaultResourceIds.get(provider);
-        if (resourceId == null) {
-            throw new IllegalStateException("No default resource imported for provider: " + provider);
+        List<String> resourceIds = providerResourceIds.get(provider);
+        if (resourceIds == null || resourceIds.isEmpty()) {
+            throw new IllegalStateException("No resources imported for provider: " + provider);
         }
+        String resourceId = selectResourceId(resourceIds, message, goal);
 
         List<Map<String, String>> turns = List.of(Map.of("role", "user", "content", message));
         Map<String, Object> summaryResponse = post("/internal/session/summarize", Map.of(
@@ -92,7 +101,7 @@ public class EngineClient {
         ));
         String sessionSummary = String.valueOf(summaryResponse.get("summary"));
 
-        List<String> selectedResourcePaths = resolveSelectedResourcePaths(resourceId);
+        List<String> selectedResourcePaths = getResourceTreeMetadata(resourceId).selectedResourcePaths();
         Map<String, Object> memoryResponse = post("/internal/memory/extract", Map.of(
             "session_goal", goal,
             "turns", turns,
@@ -115,27 +124,75 @@ public class EngineClient {
             .body(Map.class);
     }
 
+    private String selectResourceId(List<String> resourceIds, String message, String goal) {
+        if (resourceIds.size() == 1) {
+            return resourceIds.getFirst();
+        }
+
+        List<ResourceCandidateSelector.ResourceCandidate> candidates = resourceIds.stream()
+            .map(resourceId -> {
+                ResourceTreeMetadata metadata = getResourceTreeMetadata(resourceId);
+                return new ResourceCandidateSelector.ResourceCandidate(
+                    resourceId,
+                    metadata.evidenceTexts()
+                );
+            })
+            .toList();
+
+        return resourceCandidateSelector.selectResource(goal, message, candidates);
+    }
+
+    private ResourceTreeMetadata getResourceTreeMetadata(String resourceId) {
+        return resourceTreeMetadataById.computeIfAbsent(resourceId, this::fetchResourceTreeMetadata);
+    }
+
     @SuppressWarnings("unchecked")
-    private List<String> resolveSelectedResourcePaths(String resourceId) {
+    private ResourceTreeMetadata fetchResourceTreeMetadata(String resourceId) {
         Map<String, Object> treeResponse = restClient.get()
             .uri("/internal/resources/{resourceId}/tree", resourceId)
             .retrieve()
             .body(Map.class);
 
+        return buildResourceTreeMetadata(resourceId, treeResponse);
+    }
+
+    @SuppressWarnings("unchecked")
+    private ResourceTreeMetadata buildResourceTreeMetadata(String resourceId, Map<String, Object> treeResponse) {
         List<Map<String, Object>> nodes = (List<Map<String, Object>>) treeResponse.getOrDefault("nodes", List.of());
-        List<String> l2Paths = nodes.stream()
-            .filter(node -> "l2".equals(node.get("level")))
-            .map(node -> String.valueOf(node.get("nodePath")))
-            .toList();
-        if (!l2Paths.isEmpty()) {
-            return List.of(l2Paths.get(0));
+        List<String> evidenceTexts = new ArrayList<>();
+        evidenceTexts.add(resourceId);
+        List<String> l2Paths = new ArrayList<>();
+        List<String> l1Paths = new ArrayList<>();
+
+        for (Map<String, Object> node : nodes) {
+            evidenceTexts.add(readNodeField(node, "title"));
+
+            String nodePath = readNodeField(node, "nodePath", "node_path");
+            evidenceTexts.add(nodePath);
+
+            String level = readNodeField(node, "level");
+            if ("l2".equals(level) && !nodePath.isBlank()) {
+                l2Paths.add(nodePath);
+            } else if ("l1".equals(level) && !nodePath.isBlank()) {
+                l1Paths.add(nodePath);
+            }
         }
-        return nodes.stream()
-            .filter(node -> "l1".equals(node.get("level")))
-            .map(node -> String.valueOf(node.get("nodePath")))
-            .findFirst()
-            .map(List::of)
-            .orElse(List.of());
+
+        List<String> selectedResourcePaths = !l2Paths.isEmpty()
+            ? List.of(l2Paths.getFirst())
+            : (!l1Paths.isEmpty() ? List.of(l1Paths.getFirst()) : List.of());
+
+        return new ResourceTreeMetadata(List.copyOf(evidenceTexts), selectedResourcePaths);
+    }
+
+    private String readNodeField(Map<String, Object> node, String... keys) {
+        for (String key : keys) {
+            Object value = node.get(key);
+            if (value != null) {
+                return String.valueOf(value);
+            }
+        }
+        return "";
     }
 
     @SuppressWarnings("unchecked")

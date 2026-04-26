@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from uuid import uuid4
+from re import findall
 
 from fastapi import APIRouter
 from fastapi import HTTPException
@@ -209,10 +210,68 @@ def _find_current_resource_node(node_id: str) -> ResourceNode | None:
 
 def _pick_query_nodes(nodes: list[ResourceNode]) -> list[ResourceNode]:
     l2_nodes = [node for node in nodes if node.level == "l2"]
-    if l2_nodes:
-        return [l2_nodes[0]]
     l1_nodes = [node for node in nodes if node.level == "l1"]
-    return l1_nodes[:1]
+    return l2_nodes or l1_nodes[:1]
+
+
+def _build_query_terms(*values: str) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+
+    for value in values:
+        lowered = value.lower()
+        for latin_term in findall(r"[a-z0-9]+(?:-[a-z0-9]+)?", lowered):
+            if len(latin_term) <= 1 or latin_term in {"about", "reply", "write", "zhiguang"}:
+                continue
+            if latin_term not in seen:
+                seen.add(latin_term)
+                terms.append(latin_term)
+
+        for cjk_sequence in findall(r"[\u4e00-\u9fff]{2,}", value):
+            if len(cjk_sequence) <= 4:
+                if cjk_sequence not in seen:
+                    seen.add(cjk_sequence)
+                    terms.append(cjk_sequence)
+                continue
+
+            for size in range(4, 1, -1):
+                for index in range(len(cjk_sequence) - size + 1):
+                    term = cjk_sequence[index : index + size]
+                    if term not in seen:
+                        seen.add(term)
+                        terms.append(term)
+
+    return terms
+
+
+def _score_query_node(node: ResourceNode, query_terms: list[str]) -> int:
+    haystack = f"{node.title}\n{node.content}\n{node.node_path}".lower()
+    score = 0
+    for term in query_terms:
+        if term.lower() in haystack:
+            score += 2 + min(len(term), 10)
+    return score
+
+
+def _pick_query_nodes_for_prompt(
+    nodes: list[ResourceNode],
+    *,
+    question: str,
+    session_summary: str,
+) -> list[ResourceNode]:
+    candidate_nodes = _pick_query_nodes(nodes)
+    if not candidate_nodes:
+        return []
+
+    query_terms = _build_query_terms(question, session_summary)
+    if not query_terms:
+        return [candidate_nodes[0]]
+
+    best_node = max(
+        candidate_nodes,
+        key=lambda node: (_score_query_node(node, query_terms), -node.ordinal),
+    )
+    return [best_node]
 
 
 @router.post("/internal/context/query", response_model=ContextQueryResponse)
@@ -222,7 +281,11 @@ def context_query(payload: ContextQueryRequest) -> ContextQueryResponse:
         raise HTTPException(status_code=404, detail="resource not indexed")
 
     trace_id = str(uuid4())
-    selected_nodes = _pick_query_nodes(resource_nodes)
+    selected_nodes = _pick_query_nodes_for_prompt(
+        resource_nodes,
+        question=payload.question,
+        session_summary=payload.session_summary,
+    )
     query_result = build_query_result(
         question=payload.question,
         session_summary=payload.session_summary,

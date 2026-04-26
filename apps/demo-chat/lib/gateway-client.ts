@@ -47,13 +47,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function readRequiredString(
+function readString(
   container: Record<string, unknown>,
   key: string,
+  options?: { allowEmpty?: boolean },
 ): string {
   const value = container[key];
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`Expected ${key} to be a non-empty string.`);
+  if (
+    typeof value !== "string" ||
+    (!options?.allowEmpty && value.length === 0)
+  ) {
+    const expected = options?.allowEmpty ? "a string" : "a non-empty string";
+    throw new Error(`Expected ${key} to be ${expected}.`);
   }
   return value;
 }
@@ -119,10 +124,12 @@ export function normalizeQueryResponse(
   }
 
   const normalizedPayload: QueryResponsePayload = {
-    answer: readRequiredString(payload, "answer"),
-    traceId: readRequiredString(payload, "traceId"),
+    answer: readString(payload, "answer"),
+    traceId: readString(payload, "traceId"),
     usedContexts: {
-      sessionSummary: readRequiredString(usedContexts, "sessionSummary"),
+      sessionSummary: readString(usedContexts, "sessionSummary", {
+        allowEmpty: true,
+      }),
       memories: memories.map((memory, index) => {
         if (!isRecord(memory)) {
           throw new Error(
@@ -131,9 +138,9 @@ export function normalizeQueryResponse(
         }
 
         return {
-          channel: readRequiredString(memory, "channel"),
-          type: readRequiredString(memory, "type"),
-          content: readRequiredString(memory, "content"),
+          channel: readString(memory, "channel"),
+          type: readString(memory, "type"),
+          content: readString(memory, "content"),
         };
       }),
       resources: resources.map((resource, index) => {
@@ -144,9 +151,9 @@ export function normalizeQueryResponse(
         }
 
         return {
-          nodeId: readRequiredString(resource, "nodeId"),
-          traceNodeId: readRequiredString(resource, "traceNodeId"),
-          nodePath: readRequiredString(resource, "nodePath"),
+          nodeId: readString(resource, "nodeId"),
+          traceNodeId: readString(resource, "traceNodeId"),
+          nodePath: readString(resource, "nodePath"),
           drilldownTrail: readStringArray(resource, "drilldownTrail"),
         };
       }),

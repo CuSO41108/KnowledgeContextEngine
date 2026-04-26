@@ -2,24 +2,42 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 
 import { extractMessageText, normalizeTraceMetadata } from "@/lib/chat-helpers";
 import type { DemoChatMessage } from "@/lib/chat-types";
+import {
+  buildPreparedChatRequestBody,
+  buildDemoSessionId,
+  DEFAULT_GOAL,
+  DEFAULT_MESSAGE,
+  validatePromptInput,
+} from "@/lib/demo-chat-config";
 import type { NormalizedQueryResponse } from "@/lib/gateway-client";
 
 import { TracePanel } from "@/components/trace-panel";
 
-const DEFAULT_GOAL = "write a Zhiguang reply about Redis cache-aside";
-const DEFAULT_MESSAGE =
-  "I am replying on Zhiguang. How should I explain Redis cache-aside briefly?";
-const DEFAULT_SESSION_ID = "demo-session";
-
 export function ChatShell() {
+  const [sessionId, setSessionId] = useState(() => buildDemoSessionId());
+
+  return (
+    <ChatSession
+      key={sessionId}
+      onStartFreshSession={() => setSessionId(buildDemoSessionId())}
+      sessionId={sessionId}
+    />
+  );
+}
+
+function ChatSession(props: {
+  onStartFreshSession: () => void;
+  sessionId: string;
+}) {
   const [goal, setGoal] = useState(DEFAULT_GOAL);
   const [input, setInput] = useState(DEFAULT_MESSAGE);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [trace, setTrace] = useState<NormalizedQueryResponse | null>(null);
+  const goalRef = useRef(goal);
   const {
     clearError,
     error,
@@ -27,19 +45,18 @@ export function ChatShell() {
     sendMessage,
     status,
   } = useChat<DemoChatMessage>({
-    id: DEFAULT_SESSION_ID,
+    id: props.sessionId,
     onFinish: ({ message }) => {
-      setInput("");
       setTrace(normalizeTraceMetadata(message.metadata));
     },
     transport: new DefaultChatTransport({
       api: "/api/chat",
       prepareSendMessagesRequest: ({ id, messages: nextMessages }) => ({
-        body: {
-          goal: goal.trim() || DEFAULT_GOAL,
-          message: nextMessages.at(-1),
+        body: buildPreparedChatRequestBody({
+          goalRef,
+          messages: nextMessages,
           sessionId: id,
-        },
+        }),
       }),
     }),
   });
@@ -50,16 +67,19 @@ export function ChatShell() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const trimmedMessage = input.trim();
+    if (isSubmitting) {
+      return;
+    }
 
-    if (!trimmedMessage) {
-      setValidationError("Please enter the Zhiguang reply prompt.");
+    const nextValidationError = validatePromptInput(input);
+    if (nextValidationError) {
+      setValidationError(nextValidationError);
       return;
     }
 
     setValidationError(null);
     clearError();
-    await sendMessage({ text: trimmedMessage });
+    await sendMessage({ text: input.trim() });
   }
 
   return (
@@ -132,7 +152,13 @@ export function ChatShell() {
             <label style={{ display: "grid", gap: 8 }}>
               <span style={{ color: "#10233d", fontWeight: 600 }}>Goal</span>
               <input
-                onChange={(event) => setGoal(event.target.value)}
+                onChange={(event) => {
+                  setGoal(event.target.value);
+                  goalRef.current = event.target.value;
+                  if (validationError) {
+                    setValidationError(null);
+                  }
+                }}
                 style={{
                   border: "1px solid rgb(194 207 221)",
                   borderRadius: 14,
@@ -146,7 +172,12 @@ export function ChatShell() {
             <label style={{ display: "grid", gap: 8 }}>
               <span style={{ color: "#10233d", fontWeight: 600 }}>Message</span>
               <textarea
-                onChange={(event) => setInput(event.target.value)}
+                onChange={(event) => {
+                  setInput(event.target.value);
+                  if (validationError) {
+                    setValidationError(null);
+                  }
+                }}
                 rows={5}
                 style={{
                   border: "1px solid rgb(194 207 221)",
@@ -176,6 +207,25 @@ export function ChatShell() {
               type="submit"
             >
               {isSubmitting ? "Querying gateway..." : "Ask demo chat"}
+            </button>
+
+            <button
+              disabled={isSubmitting}
+              onClick={props.onStartFreshSession}
+              style={{
+                backgroundColor: "#eef4fb",
+                border: "1px solid rgb(194 207 221)",
+                borderRadius: 999,
+                color: "#18324f",
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+                fontSize: 15,
+                fontWeight: 700,
+                padding: "12px 18px",
+                width: "fit-content",
+              }}
+              type="button"
+            >
+              Start fresh session
             </button>
           </form>
 

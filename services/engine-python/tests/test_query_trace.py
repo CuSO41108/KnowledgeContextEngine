@@ -66,6 +66,29 @@ def test_build_query_result_returns_human_readable_answer() -> None:
     assert "database" in result.answer.lower()
 
 
+def test_build_query_result_preserves_existing_sentence_punctuation() -> None:
+    nodes = build_resource_nodes(
+        resource_slug="zhiguang-tracing-doc",
+        markdown=(
+            "# Zhiguang Tracing Guide\n"
+            "## 分布式追踪 / Distributed Tracing\n"
+            "Distributed tracing links trace and span IDs across services。"
+        ),
+    )
+    l2_node = next(node for node in nodes if node.level == "l2")
+
+    result = build_query_result(
+        question="我想写一条关于分布式追踪的 Zhiguang 回复。",
+        session_summary="写一条关于分布式追踪的 Zhiguang 回复",
+        memory_items=[],
+        selected_nodes=[l2_node],
+        trace_id="trace-003",
+    )
+
+    assert "。." not in result.answer
+    assert result.answer.endswith("services。")
+
+
 def test_context_query_route_returns_traceable_resources() -> None:
     client = TestClient(app)
     index_response = client.post(
@@ -108,3 +131,40 @@ def test_context_query_route_returns_traceable_resources() -> None:
         "resource://zhiguang-query-doc/l2/s000/000",
     ]
     assert payload["compressionSummary"]["beforeContextChars"] > payload["compressionSummary"]["afterContextChars"]
+
+
+def test_context_query_route_picks_the_most_relevant_resource_node() -> None:
+    client = TestClient(app)
+    index_response = client.post(
+        "/internal/resources/index",
+        json={
+            "resource_slug": "zhiguang-multi-topic-doc",
+            "markdown": (
+                "# Zhiguang Multi Topic Guide\n"
+                "## Redis Cache Aside\n"
+                "Redis cache-aside keeps the database authoritative.\n\n"
+                "## 分布式追踪 / Distributed Tracing\n"
+                "Distributed tracing links trace and span IDs across services so engineers can inspect the call chain."
+            ),
+        },
+    )
+
+    assert index_response.status_code == 200
+
+    query_response = client.post(
+        "/internal/context/query",
+        json={
+            "question": "我想在 Zhiguang 上解释分布式追踪，顺便提到 trace、span 和调用链。",
+            "resource_id": "zhiguang-multi-topic-doc",
+            "session_summary": "写一条关于分布式追踪的 Zhiguang 回复",
+            "memory_items": [],
+        },
+    )
+
+    assert query_response.status_code == 200
+    payload = query_response.json()
+
+    assert "Distributed tracing" in payload["answer"]
+    assert payload["usedContexts"]["resources"][0]["nodePath"] == (
+        "resource://zhiguang-multi-topic-doc/l2/s001/000"
+    )

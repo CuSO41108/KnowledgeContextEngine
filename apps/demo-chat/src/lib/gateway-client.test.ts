@@ -95,4 +95,52 @@ describe("normalizeQueryResponse", () => {
     expect(normalized.sessionSummary).toBe("Goal=reply on Zhiguang");
     expect(normalized.compressionSummary).toEqual({ before: 12, after: 8 });
   });
+
+  it("allows an empty session summary when the goal is intentionally blank", () => {
+    const normalized = normalizeQueryResponse({
+      answer: "Redis cache-aside keeps reads fast.",
+      traceId: "trace-demo-002",
+      usedContexts: {
+        resources: [
+          {
+            nodeId: "node-l2",
+            traceNodeId: "trace-node-l2",
+            nodePath: "resource://zhiguang-java-cache-playbook/l2/redis/000",
+            drilldownTrail: [
+              "resource://zhiguang-java-cache-playbook/l0/root",
+              "resource://zhiguang-java-cache-playbook/l1/redis",
+              "resource://zhiguang-java-cache-playbook/l2/redis/000",
+            ],
+          },
+        ],
+        memories: [
+          {
+            channel: "task_experience",
+            type: "successful_resource",
+            content:
+              "Helpful resource: resource://zhiguang-java-cache-playbook/l2/redis/000",
+          },
+        ],
+        sessionSummary: "",
+      },
+      compressionSummary: { beforeContextChars: 10, afterContextChars: 5 },
+    });
+
+    expect(normalized.sessionSummary).toBe("");
+  });
+
+  it("reports the correct string expectation when empty strings are allowed", () => {
+    expect(() =>
+      normalizeQueryResponse({
+        answer: "Redis cache-aside keeps reads fast.",
+        traceId: "trace-demo-003",
+        usedContexts: {
+          resources: [],
+          memories: [],
+          sessionSummary: 42,
+        },
+        compressionSummary: { beforeContextChars: 10, afterContextChars: 5 },
+      }),
+    ).toThrowError("Expected sessionSummary to be a string.");
+  });
 });
