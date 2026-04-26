@@ -16,6 +16,17 @@ from app.settings import settings
 router = APIRouter()
 _resource_index_store: dict[str, list[ResourceNode]] = {}
 _trace_store: dict[str, dict[str, object]] = {}
+_QUERY_TERM_ALIASES: dict[str, list[str]] = {
+    "采样": ["sampling"],
+    "日志关联": ["log correlation"],
+    "调用链": ["call chain"],
+    "幂等": ["idempotent", "idempotency"],
+    "死信队列": ["dead-letter", "dead-letter queues"],
+    "重复消费": ["duplicate", "duplicate messages"],
+    "增量刷新": ["incremental refresh"],
+    "排序信号": ["ranking"],
+    "倒排索引": ["inverted index"],
+}
 
 
 class ResourceIndexRequest(BaseModel):
@@ -244,11 +255,38 @@ def _build_query_terms(*values: str) -> list[str]:
     return terms
 
 
+def _expand_query_terms(query_terms: list[str]) -> list[str]:
+    expanded_terms = list(query_terms)
+    seen = set(query_terms)
+
+    for term in query_terms:
+        for alias in _QUERY_TERM_ALIASES.get(term, []):
+            if alias not in seen:
+                seen.add(alias)
+                expanded_terms.append(alias)
+
+    return expanded_terms
+
+
 def _build_excluded_query_terms(value: str) -> list[str]:
     excluded_segments = findall(r"(?:不展开|不讲|不讨论|不解释)([^。；;!?！？]+)", value)
     if not excluded_segments:
         return []
     return _build_query_terms(*excluded_segments)
+
+
+def _remove_excluded_query_segments(value: str) -> str:
+    return value.replace("不展开", "\n").replace("不讲", "\n").replace("不讨论", "\n").replace("不解释", "\n")
+
+
+def _extract_focus_query_terms(value: str) -> list[str]:
+    focus_segments = findall(
+        r"(?:只想|想要|想)(?:解释|讲|聊|覆盖)([^。；;!?！？]+?)(?:，|,|不展开|不讲|不讨论|不解释|$)",
+        value,
+    )
+    if not focus_segments:
+        return []
+    return _build_query_terms(*focus_segments)
 
 
 def _extract_summary_focus(session_summary: str) -> str:
@@ -278,6 +316,7 @@ def _score_terms_against_node(
 def _score_query_node(
     node: ResourceNode,
     *,
+    focus_terms: list[str],
     question_terms: list[str],
     summary_terms: list[str],
     excluded_terms: list[str],
@@ -286,6 +325,13 @@ def _score_query_node(
     content_haystack = f"{node.content}\n{node.node_path}".lower()
 
     score = _score_terms_against_node(
+        title_haystack=title_haystack,
+        content_haystack=content_haystack,
+        query_terms=focus_terms,
+        title_weight=13,
+        content_weight=9,
+    )
+    score += _score_terms_against_node(
         title_haystack=title_haystack,
         content_haystack=content_haystack,
         query_terms=question_terms,
@@ -319,10 +365,11 @@ def _pick_query_nodes_for_prompt(
     if not candidate_nodes:
         return []
 
-    question_terms = _build_query_terms(question)
-    summary_terms = _build_query_terms(_extract_summary_focus(session_summary))
-    excluded_terms = _build_excluded_query_terms(question)
-    if not question_terms and not summary_terms:
+    focus_terms = _expand_query_terms(_extract_focus_query_terms(question))
+    question_terms = _expand_query_terms(_build_query_terms(_remove_excluded_query_segments(question)))
+    summary_terms = _expand_query_terms(_build_query_terms(_extract_summary_focus(session_summary)))
+    excluded_terms = _expand_query_terms(_build_excluded_query_terms(question))
+    if not focus_terms and not question_terms and not summary_terms:
         return [candidate_nodes[0]]
 
     best_node = max(
@@ -330,6 +377,7 @@ def _pick_query_nodes_for_prompt(
         key=lambda node: (
             _score_query_node(
                 node,
+                focus_terms=focus_terms,
                 question_terms=question_terms,
                 summary_terms=summary_terms,
                 excluded_terms=excluded_terms,

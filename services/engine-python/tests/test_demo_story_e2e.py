@@ -93,3 +93,51 @@ def test_demo_story_keeps_task_experience_memory_aligned_with_selected_trace_nod
     assert task_experience["content"] == (
         "Helpful resource: resource://m-zhiguang-distributed-tracing-guide/l2/s002/000"
     )
+
+
+def test_demo_story_routes_queue_subtopic_to_delivery_section() -> None:
+    gateway_base_url = os.getenv("KCE_E2E_BASE_URL", "http://localhost:8080").rstrip("/")
+    api_key = os.getenv("KCE_E2E_API_KEY", "demo-key")
+
+    response = httpx.post(
+        f"{gateway_base_url}/api/v1/sessions/demo-session/query",
+        headers={"X-API-Key": api_key},
+        json={
+            "provider": "demo_local",
+            "externalUserId": "demo-user-1",
+            "message": "我只想解释重复消费、幂等和死信队列，不展开削峰填谷。",
+            "goal": "写一条关于消息队列的 Zhiguang 回复",
+        },
+        timeout=10,
+    )
+
+    payload = response.json()
+    resource = payload["usedContexts"]["resources"][0]
+
+    assert response.status_code == 200
+    assert "At-least-once delivery" in payload["answer"]
+    assert resource["nodePath"] == "resource://n-zhiguang-message-queue-delivery-guide/l2/s002/000"
+
+
+def test_demo_story_routes_search_subtopic_to_ranking_section() -> None:
+    gateway_base_url = os.getenv("KCE_E2E_BASE_URL", "http://localhost:8080").rstrip("/")
+    api_key = os.getenv("KCE_E2E_API_KEY", "demo-key")
+
+    response = httpx.post(
+        f"{gateway_base_url}/api/v1/sessions/demo-session/query",
+        headers={"X-API-Key": api_key},
+        json={
+            "provider": "demo_local",
+            "externalUserId": "demo-user-1",
+            "message": "我只想解释排序信号和增量刷新，不展开倒排索引。",
+            "goal": "写一条关于搜索索引的 Zhiguang 回复",
+        },
+        timeout=10,
+    )
+
+    payload = response.json()
+    resource = payload["usedContexts"]["resources"][0]
+
+    assert response.status_code == 200
+    assert "Ranking combines term matching" in payload["answer"]
+    assert resource["nodePath"] == "resource://o-zhiguang-search-indexing-guide/l2/s002/000"
