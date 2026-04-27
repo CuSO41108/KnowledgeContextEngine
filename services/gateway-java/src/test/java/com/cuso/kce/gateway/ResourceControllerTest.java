@@ -113,6 +113,37 @@ class ResourceControllerTest {
         verify(engineClient).getResourceNode("zhiguang-cache:l2:s000:000");
     }
 
+    @Test
+    void resourceTreeLookupReturnsCurrentTreeSurface() throws Exception {
+        when(engineClient.getResourceTree("zhiguang-cache"))
+            .thenReturn(Map.of(
+                "resourceId", "zhiguang-cache",
+                "nodes", List.of(
+                    Map.of(
+                        "nodeId", "zhiguang-cache:l0:root",
+                        "nodePath", "resource://zhiguang-cache/l0/root",
+                        "level", "l0",
+                        "title", "Zhiguang Cache Guide",
+                        "parentNodeId", ""
+                    ),
+                    Map.of(
+                        "nodeId", "zhiguang-cache:l2:s000:000",
+                        "nodePath", "resource://zhiguang-cache/l2/s000/000",
+                        "level", "l2",
+                        "title", "Cache Aside #1",
+                        "parentNodeId", "zhiguang-cache:l1:s000"
+                    )
+                )
+            ));
+
+        mockMvc.perform(get("/api/v1/resources/zhiguang-cache/tree").header("X-API-Key", "test-gateway-key"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.resourceId").value("zhiguang-cache"))
+            .andExpect(jsonPath("$.nodes[1].nodePath").value("resource://zhiguang-cache/l2/s000/000"));
+
+        verify(engineClient).getResourceTree("zhiguang-cache");
+    }
+
     @TestConfiguration
     static class TestConfig {
         @Bean

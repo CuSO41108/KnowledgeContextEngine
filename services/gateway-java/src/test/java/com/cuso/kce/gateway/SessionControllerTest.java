@@ -40,10 +40,60 @@ class SessionControllerTest {
     private EngineClient engineClient;
 
     @Test
+    void createSessionReturnsPersistedSessionState() throws Exception {
+        when(identityService.resolveInternalUserId("wechat", "zhiguang-001"))
+            .thenReturn("0f8fad5b-d9cb-469f-a165-70867728950e");
+        when(engineClient.createSession(
+            anyString(),
+            anyString(),
+            anyString(),
+            anyString(),
+            anyString()
+        )).thenReturn(
+            Map.of(
+                "sessionId", "session-1",
+                "goal", "Draft a concise Java answer.",
+                "summary", "Existing Zhiguang context.",
+                "created", true,
+                "turnCount", 0
+            )
+        );
+
+        mockMvc.perform(
+                post("/api/v1/sessions")
+                    .header("X-API-Key", "test-gateway-key")
+                    .contentType(APPLICATION_JSON)
+                    .content("""
+                        {
+                          "provider": "wechat",
+                          "externalUserId": "zhiguang-001",
+                          "sessionId": "session-1",
+                          "goal": "Draft a concise Java answer."
+                        }
+                        """)
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.sessionId").value("session-1"))
+            .andExpect(jsonPath("$.goal").value("Draft a concise Java answer."))
+            .andExpect(jsonPath("$.created").value(true))
+            .andExpect(jsonPath("$.turnCount").value(0));
+
+        verify(identityService).resolveInternalUserId("wechat", "zhiguang-001");
+        verify(engineClient).createSession(
+            "session-1",
+            "0f8fad5b-d9cb-469f-a165-70867728950e",
+            "wechat",
+            "zhiguang-001",
+            "Draft a concise Java answer."
+        );
+    }
+
+    @Test
     void sessionQueryReturnsGatewayProxyPayload() throws Exception {
         when(identityService.resolveInternalUserId("wechat", "zhiguang-001"))
             .thenReturn("0f8fad5b-d9cb-469f-a165-70867728950e");
         when(engineClient.query(
+            anyString(),
             anyString(),
             anyString(),
             anyString(),
@@ -104,7 +154,59 @@ class SessionControllerTest {
             "session-1",
             "0f8fad5b-d9cb-469f-a165-70867728950e",
             "wechat",
+            "zhiguang-001",
             "How should I reply on Zhiguang about Redis cache-aside?",
+            "Draft a concise Java answer."
+        );
+    }
+
+    @Test
+    void commitSessionPersistsTurnState() throws Exception {
+        when(identityService.resolveInternalUserId("wechat", "zhiguang-001"))
+            .thenReturn("0f8fad5b-d9cb-469f-a165-70867728950e");
+        when(engineClient.commitSession(
+            anyString(),
+            anyString(),
+            anyString(),
+            anyString(),
+            anyString(),
+            anyString()
+        )).thenReturn(
+            Map.of(
+                "status", "ok",
+                "sessionId", "session-1",
+                "summary", "Zhiguang summary after commit.",
+                "committedMemoryCount", 2
+            )
+        );
+
+        mockMvc.perform(
+                post("/api/v1/sessions/session-1/commit")
+                    .header("X-API-Key", "test-gateway-key")
+                    .contentType(APPLICATION_JSON)
+                    .content("""
+                        {
+                          "provider": "wechat",
+                          "externalUserId": "zhiguang-001",
+                          "userMessage": "How should I reply on Zhiguang about Redis cache-aside?",
+                          "assistantAnswer": "Reply on Zhiguang with a concise Java cache-aside explanation.",
+                          "traceId": "trace-123",
+                          "goal": "Draft a concise Java answer."
+                        }
+                        """)
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ok"))
+            .andExpect(jsonPath("$.sessionId").value("session-1"))
+            .andExpect(jsonPath("$.committedMemoryCount").value(2));
+
+        verify(identityService).resolveInternalUserId("wechat", "zhiguang-001");
+        verify(engineClient).commitSession(
+            "session-1",
+            "0f8fad5b-d9cb-469f-a165-70867728950e",
+            "How should I reply on Zhiguang about Redis cache-aside?",
+            "Reply on Zhiguang with a concise Java cache-aside explanation.",
+            "trace-123",
             "Draft a concise Java answer."
         );
     }

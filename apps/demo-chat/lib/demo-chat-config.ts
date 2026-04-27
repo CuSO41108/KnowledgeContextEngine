@@ -3,6 +3,7 @@ import type { DemoChatMessage } from "@/lib/chat-types";
 export const DEFAULT_GOAL = "write a Zhiguang reply about Redis cache-aside";
 export const DEFAULT_MESSAGE =
   "I am replying on Zhiguang. How should I explain Redis cache-aside briefly?";
+export const FALLBACK_EXTERNAL_USER_ID = "demo-user-1";
 export const FALLBACK_SESSION_ID = "demo-session";
 
 function buildFallbackToken() {
@@ -27,6 +28,13 @@ export function buildDemoSessionId(
   return `${FALLBACK_SESSION_ID}-${suffix}`;
 }
 
+export function buildDemoExternalUserId(
+  createId: () => string = defaultIdFactory,
+) {
+  const suffix = createId().trim() || buildFallbackToken();
+  return `demo-user-${suffix}`;
+}
+
 export function resolveSubmittedGoal(goal: string) {
   return goal.trim();
 }
@@ -47,6 +55,14 @@ export function resolveRouteSessionId(sessionId: unknown) {
   return FALLBACK_SESSION_ID;
 }
 
+export function resolveRouteExternalUserId(externalUserId: unknown) {
+  if (typeof externalUserId === "string") {
+    return externalUserId.trim();
+  }
+
+  return FALLBACK_EXTERNAL_USER_ID;
+}
+
 export function validatePromptInput(message: string) {
   if (message.trim().length === 0) {
     return "Please enter the Zhiguang reply prompt.";
@@ -56,11 +72,13 @@ export function validatePromptInput(message: string) {
 }
 
 export function buildPreparedChatRequestBody(props: {
+  externalUserId: string;
   goalRef: { current: string };
   messages: DemoChatMessage[];
   sessionId: string;
 }) {
   return {
+    externalUserId: props.externalUserId.trim(),
     goal: resolveSubmittedGoal(props.goalRef.current),
     message: props.messages.at(-1),
     sessionId: props.sessionId,

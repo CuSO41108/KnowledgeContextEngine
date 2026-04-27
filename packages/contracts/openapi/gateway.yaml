@@ -37,6 +37,64 @@ paths:
                     type: array
                     items:
                       type: string
+  /api/v1/resources/nodes/{nodeId}:
+    get:
+      summary: Read the current public snapshot of an addressable resource node
+      parameters:
+        - name: nodeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current resource node snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceNodeSnapshot'
+  /api/v1/resources/{resourceId}/tree:
+    get:
+      summary: Browse the current public tree for a resource
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Resource tree result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceTree'
+  /api/v1/sessions:
+    post:
+      summary: Create or ensure a public session for a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, externalUserId, sessionId]
+              properties:
+                provider:
+                  type: string
+                externalUserId:
+                  type: string
+                sessionId:
+                  type: string
+                goal:
+                  type: string
+      responses:
+        '200':
+          description: Session state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionState'
   /api/v1/sessions/{sessionId}/query:
     post:
       summary: Run a public session query through the engine
@@ -69,6 +127,42 @@ paths:
             application/json:
               schema:
                 $ref: '../json/query-response.schema.json'
+  /api/v1/sessions/{sessionId}/commit:
+    post:
+      summary: Persist a public session turn after answering
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, externalUserId, userMessage, assistantAnswer, traceId]
+              properties:
+                provider:
+                  type: string
+                externalUserId:
+                  type: string
+                userMessage:
+                  type: string
+                assistantAnswer:
+                  type: string
+                traceId:
+                  type: string
+                goal:
+                  type: string
+      responses:
+        '200':
+          description: Commit result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionCommit'
   /api/v1/traces/{traceId}:
     get:
       summary: Read back a stored trace payload
@@ -85,3 +179,101 @@ paths:
             application/json:
               schema:
                 $ref: '../json/trace-response.schema.json'
+  /api/v1/traces/{traceId}/nodes/{nodeId}:
+    get:
+      summary: Read a historical node snapshot from a stored trace
+      parameters:
+        - name: traceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Historical trace node snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceNodeSnapshot'
+components:
+  schemas:
+    ResourceTree:
+      type: object
+      required: [resourceId, nodes]
+      properties:
+        resourceId:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceTreeNode'
+    ResourceTreeNode:
+      type: object
+      required: [nodeId, nodePath, level, title]
+      properties:
+        nodeId:
+          type: string
+        nodePath:
+          type: string
+        level:
+          type: string
+        title:
+          type: string
+        parentNodeId:
+          type: string
+          nullable: true
+    SessionState:
+      type: object
+      required: [sessionId, goal, summary, created, turnCount]
+      properties:
+        sessionId:
+          type: string
+        goal:
+          type: string
+        summary:
+          type: string
+        created:
+          type: boolean
+        turnCount:
+          type: integer
+    SessionCommit:
+      type: object
+      required: [status, sessionId, summary, committedMemoryCount]
+      properties:
+        status:
+          type: string
+        sessionId:
+          type: string
+        summary:
+          type: string
+        committedMemoryCount:
+          type: integer
+    TraceNodeSnapshot:
+      type: object
+      required: [nodeId, nodePath, level, ancestry, snapshotContent]
+      properties:
+        nodeId:
+          type: string
+        nodePath:
+          type: string
+        level:
+          type: string
+        ancestry:
+          type: array
+          items:
+            type: object
+            required: [node_id, node_path, level]
+            properties:
+              node_id:
+                type: string
+              node_path:
+                type: string
+              level:
+                type: string
+        snapshotContent:
+          type: string

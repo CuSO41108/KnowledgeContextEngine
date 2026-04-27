@@ -22,6 +22,19 @@ public class SessionController {
         this.engineClient = engineClient;
     }
 
+    @PostMapping
+    public Map<String, Object> createSession(@RequestBody SessionCreateRequest request) {
+        String sessionId = request.sessionId();
+        String internalUserId = identityService.resolveInternalUserId(request.provider(), request.externalUserId());
+        return engineClient.createSession(
+            sessionId,
+            internalUserId,
+            request.provider(),
+            request.externalUserId(),
+            request.goal()
+        );
+    }
+
     @PostMapping("/{sessionId}/query")
     public Map<String, Object> query(@PathVariable String sessionId, @RequestBody SessionQueryRequest request) {
         String internalUserId = identityService.resolveInternalUserId(request.provider(), request.externalUserId());
@@ -29,15 +42,47 @@ public class SessionController {
             sessionId,
             internalUserId,
             request.provider(),
+            request.externalUserId(),
             request.message(),
             request.goal()
         );
+    }
+
+    @PostMapping("/{sessionId}/commit")
+    public Map<String, Object> commit(@PathVariable String sessionId, @RequestBody SessionCommitRequest request) {
+        String internalUserId = identityService.resolveInternalUserId(request.provider(), request.externalUserId());
+        return engineClient.commitSession(
+            sessionId,
+            internalUserId,
+            request.userMessage(),
+            request.assistantAnswer(),
+            request.traceId(),
+            request.goal()
+        );
+    }
+
+    public record SessionCreateRequest(
+        String provider,
+        String externalUserId,
+        String sessionId,
+        String goal
+    ) {
     }
 
     public record SessionQueryRequest(
         String provider,
         String externalUserId,
         String message,
+        String goal
+    ) {
+    }
+
+    public record SessionCommitRequest(
+        String provider,
+        String externalUserId,
+        String userMessage,
+        String assistantAnswer,
+        String traceId,
         String goal
     ) {
     }

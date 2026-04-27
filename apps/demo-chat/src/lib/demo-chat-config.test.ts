@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPreparedChatRequestBody,
+  buildDemoExternalUserId,
   buildDemoSessionId,
   resolveRouteGoal,
+  resolveRouteExternalUserId,
   resolveRouteSessionId,
   resolveSubmittedGoal,
   validatePromptInput,
@@ -13,6 +15,12 @@ describe("demo-chat-config", () => {
   it("builds a fresh demo session id with a stable prefix", () => {
     expect(buildDemoSessionId(() => "trace-test-001")).toBe(
       "demo-session-trace-test-001",
+    );
+  });
+
+  it("builds a fresh external user id with a stable prefix", () => {
+    expect(buildDemoExternalUserId(() => "trace-test-001")).toBe(
+      "demo-user-trace-test-001",
     );
   });
 
@@ -34,6 +42,13 @@ describe("demo-chat-config", () => {
     expect(resolveRouteSessionId(undefined)).toBe("demo-session");
   });
 
+  it("uses the fallback external user id only when the route receives none", () => {
+    expect(resolveRouteExternalUserId(" demo-user-test ")).toBe(
+      "demo-user-test",
+    );
+    expect(resolveRouteExternalUserId(undefined)).toBe("demo-user-1");
+  });
+
   it("validates that the prompt message is not blank", () => {
     expect(validatePromptInput("   ")).toBe(
       "Please enter the Zhiguang reply prompt.",
@@ -46,6 +61,7 @@ describe("demo-chat-config", () => {
 
     expect(
       buildPreparedChatRequestBody({
+        externalUserId: " demo-user-test ",
         goalRef,
         messages: [
           {
@@ -57,6 +73,7 @@ describe("demo-chat-config", () => {
         sessionId: "demo-session-test",
       }),
     ).toEqual({
+      externalUserId: "demo-user-test",
       goal: "trimmed goal",
       message: {
         id: "msg-1",

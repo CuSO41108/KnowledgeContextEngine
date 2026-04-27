@@ -8,6 +8,7 @@ import { extractMessageText, normalizeTraceMetadata } from "@/lib/chat-helpers";
 import type { DemoChatMessage } from "@/lib/chat-types";
 import {
   buildPreparedChatRequestBody,
+  buildDemoExternalUserId,
   buildDemoSessionId,
   DEFAULT_GOAL,
   DEFAULT_MESSAGE,
@@ -18,19 +19,36 @@ import type { NormalizedQueryResponse } from "@/lib/gateway-client";
 import { TracePanel } from "@/components/trace-panel";
 
 export function ChatShell() {
-  const [sessionId, setSessionId] = useState(() => buildDemoSessionId());
+  const [identity, setIdentity] = useState(() => ({
+    externalUserId: buildDemoExternalUserId(),
+    sessionId: buildDemoSessionId(),
+  }));
 
   return (
     <ChatSession
-      key={sessionId}
-      onStartFreshSession={() => setSessionId(buildDemoSessionId())}
-      sessionId={sessionId}
+      key={`${identity.externalUserId}:${identity.sessionId}`}
+      externalUserId={identity.externalUserId}
+      onStartFreshSession={() =>
+        setIdentity((current) => ({
+          ...current,
+          sessionId: buildDemoSessionId(),
+        }))
+      }
+      onStartFreshUserSession={() =>
+        setIdentity({
+          externalUserId: buildDemoExternalUserId(),
+          sessionId: buildDemoSessionId(),
+        })
+      }
+      sessionId={identity.sessionId}
     />
   );
 }
 
 function ChatSession(props: {
+  externalUserId: string;
   onStartFreshSession: () => void;
+  onStartFreshUserSession: () => void;
   sessionId: string;
 }) {
   const [goal, setGoal] = useState(DEFAULT_GOAL);
@@ -54,6 +72,7 @@ function ChatSession(props: {
       api: "/api/chat",
       prepareSendMessagesRequest: ({ id, messages: nextMessages }) => ({
         body: buildPreparedChatRequestBody({
+          externalUserId: props.externalUserId,
           goalRef,
           messages: nextMessages,
           sessionId: id,
@@ -153,6 +172,63 @@ function ChatSession(props: {
             onSubmit={handleSubmit}
             style={{ display: "grid", gap: 16, marginBottom: 24 }}
           >
+            <div
+              style={{
+                backgroundColor: "#f6f9fc",
+                border: "1px solid rgb(214 224 234)",
+                borderRadius: 16,
+                color: "#385170",
+                display: "grid",
+                gap: 10,
+                padding: 16,
+              }}
+            >
+              <div style={{ display: "grid", gap: 6 }}>
+                <span style={{ color: "#10233d", fontWeight: 600 }}>
+                  Active identity
+                </span>
+                <code
+                  style={{
+                    backgroundColor: "#ffffff",
+                    borderRadius: 10,
+                    color: "#18324f",
+                    display: "inline-block",
+                    fontSize: 13,
+                    padding: "8px 10px",
+                    width: "fit-content",
+                  }}
+                >
+                  user: {props.externalUserId}
+                </code>
+                <code
+                  style={{
+                    backgroundColor: "#ffffff",
+                    borderRadius: 10,
+                    color: "#18324f",
+                    display: "inline-block",
+                    fontSize: 13,
+                    padding: "8px 10px",
+                    width: "fit-content",
+                  }}
+                >
+                  session: {props.sessionId}
+                </code>
+              </div>
+              <p
+                style={{
+                  color: "#4c6179",
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  margin: 0,
+                }}
+              >
+                <strong>Start fresh session</strong> keeps the same user memory
+                but rotates the session. <strong>Start fresh user + session</strong>{" "}
+                rotates both, which is the safer choice for isolated routing
+                checks.
+              </p>
+            </div>
+
             <label style={{ display: "grid", gap: 8 }}>
               <span style={{ color: "#10233d", fontWeight: 600 }}>Goal</span>
               <input
@@ -230,6 +306,25 @@ function ChatSession(props: {
               type="button"
             >
               Start fresh session
+            </button>
+
+            <button
+              disabled={isSubmitting}
+              onClick={props.onStartFreshUserSession}
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid rgb(160 183 207)",
+                borderRadius: 999,
+                color: "#10233d",
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+                fontSize: 15,
+                fontWeight: 700,
+                padding: "12px 18px",
+                width: "fit-content",
+              }}
+              type="button"
+            >
+              Start fresh user + session
             </button>
           </form>
 

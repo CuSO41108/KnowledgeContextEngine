@@ -9,20 +9,20 @@ import org.springframework.web.client.RestClient;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.stream.Stream;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 @Service
 public class EngineClient {
 
     private final RestClient restClient;
-    private final Map<String, List<String>> providerResourceIds = new ConcurrentHashMap<>();
     private final Map<String, ResourceTreeMetadata> resourceTreeMetadataById = new ConcurrentHashMap<>();
     private final ResourceCandidateSelector resourceCandidateSelector = new ResourceCandidateSelector();
 
@@ -57,17 +57,15 @@ public class EngineClient {
                 .uri("/internal/resources/index")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of(
+                    "provider", provider,
                     "resource_slug", resourceId,
-                    "markdown", markdown
+                    "markdown", markdown,
+                    "source_uri", markdownFile.toAbsolutePath().toString()
                 ))
                 .retrieve()
                 .body(Map.class);
             resourceTreeMetadataById.put(resourceId, buildResourceTreeMetadata(resourceId, indexResponse));
             resourceIds.add(resourceId);
-        }
-
-        if (!resourceIds.isEmpty()) {
-            providerResourceIds.put(provider, List.copyOf(resourceIds));
         }
 
         Map<String, Object> response = new LinkedHashMap<>();
@@ -82,11 +80,13 @@ public class EngineClient {
         String sessionId,
         String internalUserId,
         String provider,
+        String externalUserId,
         String message,
         String goal
     ) {
-        List<String> resourceIds = providerResourceIds.get(provider);
-        if (resourceIds == null || resourceIds.isEmpty()) {
+        Map<String, Object> sessionState = createSession(sessionId, internalUserId, provider, externalUserId, goal);
+        List<String> resourceIds = refreshProviderResourceMetadata(provider);
+        if (resourceIds.isEmpty()) {
             throw new IllegalStateException("No resources imported for provider: " + provider);
         }
         String resourceId = selectResourceId(resourceIds, message, goal);
@@ -96,20 +96,64 @@ public class EngineClient {
             "session_goal", goal,
             "turns", turns
         ));
-        String sessionSummary = String.valueOf(summaryResponse.get("summary"));
+        String sessionSummary = mergeSessionSummaries(
+            String.valueOf(sessionState.getOrDefault("summary", "")),
+            String.valueOf(summaryResponse.getOrDefault("summary", ""))
+        );
 
         Map<String, Object> memoryResponse = post("/internal/memory/extract", Map.of(
             "session_goal", goal,
             "turns", turns
         ));
-        List<String> memoryItems = extractMemoryContents(memoryResponse);
+        List<String> memoryItems = mergeMemoryContents(
+            extractRecalledMemoryContents(getUserMemories(internalUserId)),
+            extractCandidateMemoryContents(memoryResponse)
+        );
 
         return post("/internal/context/query", Map.of(
             "question", message,
             "resource_id", resourceId,
             "session_summary", sessionSummary,
-            "memory_items", memoryItems
+            "memory_items", memoryItems,
+            "session_key", sessionId,
+            "user_id", internalUserId
         ));
+    }
+
+    public Map<String, Object> createSession(
+        String sessionId,
+        String internalUserId,
+        String provider,
+        String externalUserId,
+        String goal
+    ) {
+        return post("/internal/sessions", Map.of(
+            "session_key", sessionId,
+            "user_id", internalUserId,
+            "provider", provider,
+            "external_user_id", externalUserId,
+            "goal", normalizeOptional(goal)
+        ));
+    }
+
+    public Map<String, Object> commitSession(
+        String sessionId,
+        String internalUserId,
+        String userMessage,
+        String assistantAnswer,
+        String traceId,
+        String goal
+    ) {
+        return post(
+            "/internal/sessions/" + sessionId + "/commit",
+            Map.of(
+                "user_id", internalUserId,
+                "goal", normalizeOptional(goal),
+                "user_message", userMessage,
+                "assistant_answer", assistantAnswer,
+                "trace_id", traceId
+            )
+        );
     }
 
     public Map<String, Object> getTrace(String traceId) {
@@ -129,6 +173,13 @@ public class EngineClient {
     public Map<String, Object> getResourceNode(String nodeId) {
         return restClient.get()
             .uri("/internal/resources/nodes/{nodeId}", nodeId)
+            .retrieve()
+            .body(Map.class);
+    }
+
+    public Map<String, Object> getResourceTree(String resourceId) {
+        return restClient.get()
+            .uri("/internal/resources/{resourceId}/tree", resourceId)
             .retrieve()
             .body(Map.class);
     }
@@ -153,6 +204,24 @@ public class EngineClient {
 
     private ResourceTreeMetadata getResourceTreeMetadata(String resourceId) {
         return resourceTreeMetadataById.computeIfAbsent(resourceId, this::fetchResourceTreeMetadata);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> refreshProviderResourceMetadata(String provider) {
+        Map<String, Object> providerTreesResponse = restClient.get()
+            .uri("/internal/resources/providers/{provider}/trees", provider)
+            .retrieve()
+            .body(Map.class);
+
+        List<Map<String, Object>> resourceTrees =
+            (List<Map<String, Object>>) providerTreesResponse.getOrDefault("resources", List.of());
+        List<String> resourceIds = new ArrayList<>();
+        for (Map<String, Object> resourceTree : resourceTrees) {
+            String resourceId = String.valueOf(resourceTree.get("resourceId"));
+            resourceTreeMetadataById.put(resourceId, buildResourceTreeMetadata(resourceId, resourceTree));
+            resourceIds.add(resourceId);
+        }
+        return List.copyOf(resourceIds);
     }
 
     @SuppressWarnings("unchecked")
@@ -192,11 +261,48 @@ public class EngineClient {
     }
 
     @SuppressWarnings("unchecked")
-    private List<String> extractMemoryContents(Map<String, Object> memoryResponse) {
+    private List<String> extractCandidateMemoryContents(Map<String, Object> memoryResponse) {
         List<Map<String, Object>> candidates = (List<Map<String, Object>>) memoryResponse.getOrDefault("candidates", List.of());
         return candidates.stream()
             .map(candidate -> String.valueOf(candidate.get("content")))
             .toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> extractRecalledMemoryContents(Map<String, Object> memoryResponse) {
+        List<Map<String, Object>> memories = (List<Map<String, Object>>) memoryResponse.getOrDefault("memories", List.of());
+        return memories.stream()
+            .map(memory -> String.valueOf(memory.get("content")))
+            .toList();
+    }
+
+    private Map<String, Object> getUserMemories(String internalUserId) {
+        return restClient.get()
+            .uri("/internal/users/{userId}/memories", internalUserId)
+            .retrieve()
+            .body(Map.class);
+    }
+
+    private List<String> mergeMemoryContents(List<String> recalledMemoryItems, List<String> currentMemoryItems) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        merged.addAll(recalledMemoryItems);
+        merged.addAll(currentMemoryItems);
+        return List.copyOf(merged);
+    }
+
+    private String mergeSessionSummaries(String existingSummary, String currentSummary) {
+        String normalizedExisting = normalizeOptional(existingSummary);
+        String normalizedCurrent = normalizeOptional(currentSummary);
+        if (normalizedExisting.isBlank()) {
+            return normalizedCurrent;
+        }
+        if (normalizedCurrent.isBlank()) {
+            return normalizedExisting;
+        }
+        if (normalizedExisting.equals(normalizedCurrent)) {
+            return normalizedExisting;
+        }
+        return normalizedExisting + " Historical context: " + normalizedCurrent;
     }
 
     private Map<String, Object> post(String uri, Map<String, Object> body) {
@@ -206,6 +312,10 @@ public class EngineClient {
             .body(body)
             .retrieve()
             .body(Map.class);
+    }
+
+    private String normalizeOptional(String value) {
+        return value == null ? "" : value;
     }
 
     private String stripExtension(String fileName) {

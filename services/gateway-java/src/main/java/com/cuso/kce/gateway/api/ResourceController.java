@@ -37,6 +37,11 @@ public class ResourceController {
         return engineClient.getResourceNode(nodeId);
     }
 
+    @GetMapping("/{resourceId}/tree")
+    public Map<String, Object> getResourceTree(@PathVariable String resourceId) {
+        return engineClient.getResourceTree(resourceId);
+    }
+
     public record ResourceImportRequest(String provider, String resourceDir) {
     }
 }
