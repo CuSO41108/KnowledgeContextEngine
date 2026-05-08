@@ -76,6 +76,51 @@ public class EngineClient {
         return response;
     }
 
+    public Map<String, Object> syncZhiguangPost(
+        String postId,
+        String title,
+        String description,
+        List<String> tags,
+        String contentMarkdown,
+        String contentUrl,
+        String contentSha256,
+        String authorId,
+        String status,
+        String visible
+    ) {
+        String resourceId = buildZhiguangResourceId(postId);
+        String sourceUri = normalizeZhiguangSourceUri(postId, contentUrl);
+        String markdown = buildZhiguangPostMarkdown(
+            postId,
+            title,
+            description,
+            tags,
+            contentMarkdown,
+            contentUrl,
+            contentSha256,
+            authorId,
+            status,
+            visible
+        );
+
+        Map<String, Object> indexBody = new LinkedHashMap<>();
+        indexBody.put("provider", "zhiguang");
+        indexBody.put("resource_slug", resourceId);
+        indexBody.put("markdown", markdown);
+        indexBody.put("source_uri", sourceUri);
+
+        Map<String, Object> indexResponse = post("/internal/resources/index", indexBody);
+        resourceTreeMetadataById.put(resourceId, buildResourceTreeMetadata(resourceId, indexResponse));
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", "ok");
+        response.put("provider", "zhiguang");
+        response.put("resourceId", resourceId);
+        response.put("sourceUri", sourceUri);
+        response.put("nodeCount", indexResponse.getOrDefault("imported_count", 0));
+        return response;
+    }
+
     public Map<String, Object> query(
         String sessionId,
         String internalUserId,
@@ -84,12 +129,20 @@ public class EngineClient {
         String message,
         String goal
     ) {
+        return query(sessionId, internalUserId, provider, externalUserId, message, goal, null);
+    }
+
+    public Map<String, Object> query(
+        String sessionId,
+        String internalUserId,
+        String provider,
+        String externalUserId,
+        String message,
+        String goal,
+        String resourceId
+    ) {
         Map<String, Object> sessionState = createSession(sessionId, internalUserId, provider, externalUserId, goal);
-        List<String> resourceIds = refreshProviderResourceMetadata(provider);
-        if (resourceIds.isEmpty()) {
-            throw new IllegalStateException("No resources imported for provider: " + provider);
-        }
-        String resourceId = selectResourceId(resourceIds, message, goal);
+        String selectedResourceId = resolveQueryResourceId(provider, message, goal, resourceId);
 
         List<Map<String, String>> turns = List.of(Map.of("role", "user", "content", message));
         Map<String, Object> summaryResponse = post("/internal/session/summarize", Map.of(
@@ -112,7 +165,7 @@ public class EngineClient {
 
         return post("/internal/context/query", Map.of(
             "question", message,
-            "resource_id", resourceId,
+            "resource_id", selectedResourceId,
             "session_summary", sessionSummary,
             "memory_items", memoryItems,
             "session_key", sessionId,
@@ -200,6 +253,19 @@ public class EngineClient {
             .toList();
 
         return resourceCandidateSelector.selectResource(goal, message, candidates);
+    }
+
+    private String resolveQueryResourceId(String provider, String message, String goal, String resourceId) {
+        String normalizedResourceId = normalizeOptional(resourceId).trim();
+        if (!normalizedResourceId.isBlank()) {
+            return normalizedResourceId;
+        }
+
+        List<String> resourceIds = refreshProviderResourceMetadata(provider);
+        if (resourceIds.isEmpty()) {
+            throw new IllegalStateException("No resources imported for provider: " + provider);
+        }
+        return selectResourceId(resourceIds, message, goal);
     }
 
     private ResourceTreeMetadata getResourceTreeMetadata(String resourceId) {
@@ -316,6 +382,73 @@ public class EngineClient {
 
     private String normalizeOptional(String value) {
         return value == null ? "" : value;
+    }
+
+    private String buildZhiguangResourceId(String postId) {
+        String normalizedPostId = normalizeOptional(postId).trim();
+        if (normalizedPostId.isBlank()) {
+            return "zhiguang-post-unknown";
+        }
+        return "zhiguang-post-" + slugify(normalizedPostId);
+    }
+
+    private String normalizeZhiguangSourceUri(String postId, String contentUrl) {
+        String normalizedContentUrl = normalizeOptional(contentUrl).trim();
+        if (!normalizedContentUrl.isBlank()) {
+            return normalizedContentUrl;
+        }
+        return "zhiguang://knowposts/" + normalizeOptional(postId).trim();
+    }
+
+    private String buildZhiguangPostMarkdown(
+        String postId,
+        String title,
+        String description,
+        List<String> tags,
+        String contentMarkdown,
+        String contentUrl,
+        String contentSha256,
+        String authorId,
+        String status,
+        String visible
+    ) {
+        String normalizedTitle = normalizeOptional(title).trim();
+        if (normalizedTitle.isBlank()) {
+            normalizedTitle = "Zhiguang post " + normalizeOptional(postId).trim();
+        }
+
+        StringBuilder markdown = new StringBuilder();
+        markdown.append("# ").append(normalizedTitle).append("\n\n");
+        markdown.append("Provider: zhiguang\n");
+        markdown.append("Post ID: ").append(normalizeOptional(postId).trim()).append("\n");
+        appendMetadataLine(markdown, "Author ID", authorId);
+        appendMetadataLine(markdown, "Status", status);
+        appendMetadataLine(markdown, "Visible", visible);
+        appendMetadataLine(markdown, "Content URL", contentUrl);
+        appendMetadataLine(markdown, "Content SHA256", contentSha256);
+        if (tags != null && !tags.isEmpty()) {
+            markdown.append("Tags: ").append(String.join(", ", tags)).append("\n");
+        }
+        markdown.append("\n");
+
+        String normalizedDescription = normalizeOptional(description).trim();
+        if (!normalizedDescription.isBlank()) {
+            markdown.append("## Summary\n\n").append(normalizedDescription).append("\n\n");
+        }
+
+        String normalizedContent = normalizeOptional(contentMarkdown).trim();
+        if (!normalizedContent.isBlank()) {
+            markdown.append("## Content\n\n").append(normalizedContent).append("\n");
+        }
+
+        return markdown.toString();
+    }
+
+    private void appendMetadataLine(StringBuilder markdown, String label, String value) {
+        String normalizedValue = normalizeOptional(value).trim();
+        if (!normalizedValue.isBlank()) {
+            markdown.append(label).append(": ").append(normalizedValue).append("\n");
+        }
     }
 
     private String stripExtension(String fileName) {

@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -98,7 +99,8 @@ class SessionControllerTest {
             anyString(),
             anyString(),
             anyString(),
-            anyString()
+            anyString(),
+            nullable(String.class)
         )).thenReturn(
             Map.of(
                 "answer", "Reply on Zhiguang with a concise Java cache-aside explanation.",
@@ -156,7 +158,79 @@ class SessionControllerTest {
             "wechat",
             "zhiguang-001",
             "How should I reply on Zhiguang about Redis cache-aside?",
-            "Draft a concise Java answer."
+            "Draft a concise Java answer.",
+            null
+        );
+    }
+
+    @Test
+    void sessionQueryCanTargetSpecificResourceAfterOnDemandSync() throws Exception {
+        when(identityService.resolveInternalUserId("zhiguang", "42"))
+            .thenReturn("0f8fad5b-d9cb-469f-a165-70867728950e");
+        when(engineClient.query(
+            anyString(),
+            anyString(),
+            anyString(),
+            anyString(),
+            anyString(),
+            anyString(),
+            nullable(String.class)
+        )).thenReturn(
+            Map.of(
+                "answer", "Zhiguang reply: Cache-aside keeps the database authoritative.",
+                "traceId", "trace-zhiguang-123",
+                "usedContexts", Map.of(
+                    "sessionSummary", "Reply on current Zhiguang post.",
+                    "memories", List.of(),
+                    "resources", List.of(
+                        Map.of(
+                            "nodeId", "zhiguang-post-262804640385601536:l2:s000:000",
+                            "traceNodeId", "trace-zhiguang-123:zhiguang-post-262804640385601536:l2:s000:000",
+                            "nodePath", "resource://zhiguang-post-262804640385601536/l2/s000/000",
+                            "drilldownTrail", List.of(
+                                "resource://zhiguang-post-262804640385601536/l0/root",
+                                "resource://zhiguang-post-262804640385601536/l1/s000",
+                                "resource://zhiguang-post-262804640385601536/l2/s000/000"
+                            )
+                        )
+                    )
+                ),
+                "compressionSummary", Map.of(
+                    "beforeContextChars", 180,
+                    "afterContextChars", 96
+                )
+            )
+        );
+
+        mockMvc.perform(
+                post("/api/v1/sessions/session-1/query")
+                    .header("X-API-Key", "test-gateway-key")
+                    .contentType(APPLICATION_JSON)
+                    .content("""
+                        {
+                          "provider": "zhiguang",
+                          "externalUserId": "42",
+                          "message": "怎么解释 cache-aside？",
+                          "goal": "围绕当前知光知文生成回答",
+                          "resourceId": "zhiguang-post-262804640385601536"
+                        }
+                        """)
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.traceId").value("trace-zhiguang-123"))
+            .andExpect(jsonPath("$.usedContexts.resources[0].nodePath").value(
+                "resource://zhiguang-post-262804640385601536/l2/s000/000"
+            ));
+
+        verify(identityService).resolveInternalUserId("zhiguang", "42");
+        verify(engineClient).query(
+            "session-1",
+            "0f8fad5b-d9cb-469f-a165-70867728950e",
+            "zhiguang",
+            "42",
+            "怎么解释 cache-aside？",
+            "围绕当前知光知文生成回答",
+            "zhiguang-post-262804640385601536"
         );
     }
 
