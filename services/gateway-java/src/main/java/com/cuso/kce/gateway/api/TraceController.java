@@ -22,4 +22,12 @@ public class TraceController {
     public Map<String, Object> getTrace(@PathVariable String traceId) {
         return engineClient.getTrace(traceId);
     }
+
+    @GetMapping("/{traceId}/nodes/{nodeId}")
+    public Map<String, Object> getTraceNodeSnapshot(
+        @PathVariable String traceId,
+        @PathVariable String nodeId
+    ) {
+        return engineClient.getTraceNodeSnapshot(traceId, nodeId);
+    }
 }

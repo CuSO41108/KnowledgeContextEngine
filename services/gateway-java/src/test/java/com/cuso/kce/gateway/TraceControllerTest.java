@@ -84,6 +84,27 @@ class TraceControllerTest {
         verify(engineClient).getTrace("trace-123");
     }
 
+    @Test
+    void traceNodeLookupReturnsHistoricalSnapshotPayload() throws Exception {
+        when(engineClient.getTraceNodeSnapshot("trace-123", "zhiguang-cache:l2:s000:000"))
+            .thenReturn(Map.of(
+                "nodeId", "zhiguang-cache:l2:s000:000",
+                "nodePath", "resource://zhiguang-cache/l2/s000/000",
+                "level", "l2",
+                "ancestry", List.of(
+                    Map.of("node_id", "zhiguang-cache:l1:s000", "node_path", "resource://zhiguang-cache/l1/s000", "level", "l1")
+                ),
+                "snapshotContent", "Historical Redis snapshot content."
+            ));
+
+        mockMvc.perform(get("/api/v1/traces/trace-123/nodes/zhiguang-cache:l2:s000:000").header("X-API-Key", "test-gateway-key"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.nodeId").value("zhiguang-cache:l2:s000:000"))
+            .andExpect(jsonPath("$.snapshotContent").value("Historical Redis snapshot content."));
+
+        verify(engineClient).getTraceNodeSnapshot("trace-123", "zhiguang-cache:l2:s000:000");
+    }
+
     @TestConfiguration
     static class TestConfig {
         @Bean

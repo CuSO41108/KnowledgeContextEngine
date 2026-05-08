@@ -10,7 +10,9 @@ from wait_for_http import wait_for_http
 
 
 QUESTION = "I am replying on Zhiguang. How should I explain Redis cache-aside briefly?"
+FOLLOW_UP_QUESTION = "Make it even shorter for Zhiguang."
 GOAL = "write a Zhiguang reply about Redis cache-aside"
+SESSION_ID = "demo-history"
 
 
 def required_env(name: str, default: str) -> str:
@@ -45,8 +47,20 @@ def main() -> int:
         if imported_payload.get("importedCount", 0) < 5:
             raise RuntimeError(f"Expected at least 5 imported demo resources, got {imported_payload!r}")
 
+        session_response = client.post(
+            f"{gateway_base_url}/api/v1/sessions",
+            headers=headers,
+            json={
+                "provider": provider,
+                "externalUserId": external_user_id,
+                "sessionId": SESSION_ID,
+                "goal": GOAL,
+            },
+        )
+        session_response.raise_for_status()
+
         query_response = client.post(
-            f"{gateway_base_url}/api/v1/sessions/demo-history/query",
+            f"{gateway_base_url}/api/v1/sessions/{SESSION_ID}/query",
             headers=headers,
             json={
                 "provider": provider,
@@ -61,10 +75,63 @@ def main() -> int:
         memories = query_payload["usedContexts"]["memories"]
         if not any(memory["channel"] == "user" for memory in memories):
             raise RuntimeError(f"Expected at least one user memory, got {memories!r}")
-        if not any(memory["channel"] == "task_experience" for memory in memories):
-            raise RuntimeError(f"Expected at least one task memory, got {memories!r}")
 
         trace_id = query_payload["traceId"]
+        commit_response = client.post(
+            f"{gateway_base_url}/api/v1/sessions/{SESSION_ID}/commit",
+            headers=headers,
+            json={
+                "provider": provider,
+                "externalUserId": external_user_id,
+                "userMessage": QUESTION,
+                "assistantAnswer": query_payload["answer"],
+                "traceId": trace_id,
+                "goal": GOAL,
+            },
+        )
+        commit_response.raise_for_status()
+        commit_payload = commit_response.json()
+
+        persisted_session_response = client.post(
+            f"{gateway_base_url}/api/v1/sessions",
+            headers=headers,
+            json={
+                "provider": provider,
+                "externalUserId": external_user_id,
+                "sessionId": SESSION_ID,
+                "goal": GOAL,
+            },
+        )
+        persisted_session_response.raise_for_status()
+        persisted_session_payload = persisted_session_response.json()
+
+        if persisted_session_payload.get("turnCount", 0) < 1:
+            raise RuntimeError(
+                f"Expected persisted session turn count >= 1, got {persisted_session_payload!r}"
+            )
+        if not str(persisted_session_payload.get("summary", "")).strip():
+            raise RuntimeError(f"Expected persisted session summary, got {persisted_session_payload!r}")
+
+        follow_up_response = client.post(
+            f"{gateway_base_url}/api/v1/sessions/{SESSION_ID}/query",
+            headers=headers,
+            json={
+                "provider": provider,
+                "externalUserId": external_user_id,
+                "message": FOLLOW_UP_QUESTION,
+                "goal": GOAL,
+            },
+        )
+        follow_up_response.raise_for_status()
+        follow_up_payload = follow_up_response.json()
+
+        follow_up_memories = follow_up_payload["usedContexts"]["memories"]
+        if not any(memory["channel"] == "task_experience" for memory in follow_up_memories):
+            raise RuntimeError(
+                "Expected persisted task experience memory during follow-up query, "
+                f"got {follow_up_memories!r}"
+            )
+
         trace_response = client.get(
             f"{gateway_base_url}/api/v1/traces/{trace_id}",
             headers=headers,
@@ -77,7 +144,10 @@ def main() -> int:
         {
             "importedCount": imported_payload["importedCount"],
             "resourceIds": imported_payload["resourceIds"],
+            "committedMemoryCount": commit_payload["committedMemoryCount"],
+            "persistedTurnCount": persisted_session_payload["turnCount"],
             "seedTraceId": trace_payload["traceId"],
+            "followUpTraceId": follow_up_payload["traceId"],
         }
     )
     return 0

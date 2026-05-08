@@ -5,10 +5,13 @@ import {
 
 import { extractMessageText } from "@/lib/chat-helpers";
 import type { DemoChatMessage } from "@/lib/chat-types";
-import { resolveRouteGoal, resolveRouteSessionId } from "@/lib/demo-chat-config";
+import {
+  resolveRouteExternalUserId,
+  resolveRouteGoal,
+  resolveRouteSessionId,
+} from "@/lib/demo-chat-config";
 import { buildGatewayUrl, normalizeQueryResponse } from "@/lib/gateway-client";
 
-const DEFAULT_EXTERNAL_USER_ID = "demo-user-1";
 const DEFAULT_PROVIDER = "demo_local";
 
 type ChatRequestBody = {
@@ -18,6 +21,17 @@ type ChatRequestBody = {
   provider?: string;
   sessionId?: string;
 };
+
+function resolveOptionalValue(value: string | undefined, fallback: string): string {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : fallback;
+}
+
+async function readGatewayError(response: Response): Promise<string> {
+  const errorText = await response.text();
+  return errorText || response.statusText;
+}
 
 function resolveMessageText(message: ChatRequestBody["message"]): string {
   if (typeof message === "string") {
@@ -57,31 +71,54 @@ export async function POST(request: Request) {
   }
 
   const sessionId = resolveRouteSessionId(body.sessionId);
+  const provider = resolveOptionalValue(body.provider, DEFAULT_PROVIDER);
+  const externalUserId = resolveRouteExternalUserId(body.externalUserId);
+  const goal = resolveRouteGoal(body.goal);
+  const gatewayBaseUrl = buildGatewayUrl();
 
-  const gatewayUrl = `${buildGatewayUrl()}/api/v1/sessions/${encodeURIComponent(sessionId)}/query`;
+  const sessionUrl = `${gatewayBaseUrl}/api/v1/sessions`;
+  const queryUrl = `${gatewayBaseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/query`;
+  const commitUrl = `${gatewayBaseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`;
   const apiKey =
     process.env.GATEWAY_API_KEY ??
     process.env.DEMO_API_KEY ??
     process.env.NEXT_PUBLIC_DEMO_API_KEY;
+  const headers = {
+    "Content-Type": "application/json",
+    ...(apiKey ? { "X-API-Key": apiKey } : {}),
+  };
 
-  const gatewayResponse = await fetch(gatewayUrl, {
+  const sessionResponse = await fetch(sessionUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(apiKey ? { "X-API-Key": apiKey } : {}),
-    },
+    headers,
     body: JSON.stringify({
-      provider:
-        typeof body.provider === "string" && body.provider.trim().length > 0
-          ? body.provider.trim()
-          : DEFAULT_PROVIDER,
-      externalUserId:
-        typeof body.externalUserId === "string" &&
-        body.externalUserId.trim().length > 0
-          ? body.externalUserId.trim()
-          : DEFAULT_EXTERNAL_USER_ID,
+      provider,
+      externalUserId,
+      sessionId,
+      goal,
+    }),
+    cache: "no-store",
+  });
+
+  if (!sessionResponse.ok) {
+    return Response.json(
+      {
+        error: "Gateway session creation failed.",
+        details: await readGatewayError(sessionResponse),
+        status: sessionResponse.status,
+      },
+      { status: sessionResponse.status },
+    );
+  }
+
+  const gatewayResponse = await fetch(queryUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      provider,
+      externalUserId,
       message: messageText,
-      goal: resolveRouteGoal(body.goal),
+      goal,
     }),
     cache: "no-store",
   });
@@ -99,6 +136,30 @@ export async function POST(request: Request) {
   }
 
   const payload = normalizeQueryResponse(await gatewayResponse.json());
+  const commitResponse = await fetch(commitUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      provider,
+      externalUserId,
+      userMessage: messageText,
+      assistantAnswer: payload.answer,
+      traceId: payload.traceId,
+      goal,
+    }),
+    cache: "no-store",
+  });
+
+  if (!commitResponse.ok) {
+    return Response.json(
+      {
+        error: "Gateway session commit failed.",
+        details: await readGatewayError(commitResponse),
+        status: commitResponse.status,
+      },
+      { status: commitResponse.status },
+    );
+  }
 
   const stream = createUIMessageStream<DemoChatMessage>({
     execute({ writer }) {
