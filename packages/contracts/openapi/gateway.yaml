@@ -3,6 +3,58 @@ info:
   title: Knowledge Context Engine Gateway API
   version: 0.1.0
 paths:
+  /api/v1/adapters/zhiguang/sync:
+    post:
+      summary: On-demand sync a Zhiguang post into the context engine
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [postId, title, contentMarkdown]
+              properties:
+                postId:
+                  type: string
+                title:
+                  type: string
+                description:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                contentMarkdown:
+                  type: string
+                contentUrl:
+                  type: string
+                contentSha256:
+                  type: string
+                authorId:
+                  type: string
+                status:
+                  type: string
+                visible:
+                  type: string
+      responses:
+        '200':
+          description: Zhiguang post synced as a resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, provider, resourceId, sourceUri, nodeCount]
+                properties:
+                  status:
+                    type: string
+                  provider:
+                    type: string
+                  resourceId:
+                    type: string
+                  sourceUri:
+                    type: string
+                  nodeCount:
+                    type: integer
   /api/v1/resources/import:
     post:
       summary: Import markdown resources through the gateway
@@ -120,6 +172,9 @@ paths:
                   type: string
                 goal:
                   type: string
+                resourceId:
+                  type: string
+                  description: Optional current resource to query after on-demand sync
       responses:
         '200':
           description: Query result

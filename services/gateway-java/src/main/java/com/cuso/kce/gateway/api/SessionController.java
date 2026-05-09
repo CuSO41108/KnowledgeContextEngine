@@ -44,7 +44,8 @@ public class SessionController {
             request.provider(),
             request.externalUserId(),
             request.message(),
-            request.goal()
+            request.goal(),
+            request.resourceId()
         );
     }
 
@@ -73,7 +74,8 @@ public class SessionController {
         String provider,
         String externalUserId,
         String message,
-        String goal
+        String goal,
+        String resourceId
     ) {
     }
 
