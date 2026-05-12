@@ -85,6 +85,17 @@ ANSWER_MAX_TOKENS=700
 ANSWER_CONTEXT_MAX_CHARS=6000
 ```
 
+DeepSeek can be used as the same OpenAI-compatible provider:
+
+```env
+ANSWER_LLM_ENABLED=true
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_API_KEY=your-deepseek-key
+OPENAI_CHAT_MODEL=deepseek-v4-flash
+ANSWER_MAX_TOKENS=700
+ANSWER_CONTEXT_MAX_CHARS=6000
+```
+
 If the provider is unavailable or not configured, the engine falls back to the deterministic answer while keeping trace and context metadata intact.
 
 ### Option 2: Run tests locally

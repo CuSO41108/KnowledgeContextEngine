@@ -71,6 +71,32 @@ KnowledgeContextEngine/
 
 `demo-bootstrap` 会先完成 demo 数据导入并成功退出，随后 `demo-chat` 才会启动。
 
+### 可选：真实 LLM 答案生成
+
+默认情况下，engine-python 会返回确定性的 fallback 答案，方便本地测试和 demo 在没有模型 key 的情况下运行。要接入真实 OpenAI-compatible 聊天模型，可在 `.env` 中开启：
+
+```env
+ANSWER_LLM_ENABLED=true
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+OPENAI_API_KEY=your-key
+OPENAI_CHAT_MODEL=qwen-plus
+ANSWER_MAX_TOKENS=700
+ANSWER_CONTEXT_MAX_CHARS=6000
+```
+
+DeepSeek 也可以作为同一个 OpenAI-compatible provider 使用：
+
+```env
+ANSWER_LLM_ENABLED=true
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_API_KEY=your-deepseek-key
+OPENAI_CHAT_MODEL=deepseek-v4-flash
+ANSWER_MAX_TOKENS=700
+ANSWER_CONTEXT_MAX_CHARS=6000
+```
+
+如果 provider 不可用或未配置，系统会保留 trace 和上下文元数据，并自动回退到确定性答案。
+
 ### 方式二：本地运行测试
 
 ```powershell
