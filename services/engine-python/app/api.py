@@ -43,6 +43,21 @@ _QUERY_TERM_ALIASES: dict[str, list[str]] = {
     "排序信号": ["ranking"],
     "倒排索引": ["inverted index"],
 }
+_GENERIC_SUMMARY_TERMS = (
+    "主要讲什么",
+    "讲什么",
+    "主要内容",
+    "总结",
+    "概括",
+    "大意",
+    "main idea",
+    "summarize",
+    "summary",
+    "what is this",
+    "what is it about",
+)
+_SUBSTANTIVE_SECTION_SLUGS = {"summary", "content"}
+_METADATA_SECTION_SLUGS = {"overview", "metadata"}
 
 
 class ResourceIndexRequest(BaseModel):
@@ -296,6 +311,41 @@ def _pick_query_nodes(nodes: list[ResourceNode]) -> list[ResourceNode]:
     return l2_nodes or l1_nodes[:1]
 
 
+def _is_generic_summary_question(value: str) -> bool:
+    normalized = value.strip().lower()
+    return any(term in normalized for term in _GENERIC_SUMMARY_TERMS)
+
+
+def _is_metadata_overview_node(node: ResourceNode) -> bool:
+    content = node.content.lower()
+    return node.section_slug in _METADATA_SECTION_SLUGS and (
+        "provider:" in content
+        or "post id:" in content
+        or "content url:" in content
+        or "content sha256:" in content
+    )
+
+
+def _pick_substantive_default_nodes(candidate_nodes: list[ResourceNode]) -> list[ResourceNode]:
+    substantive_nodes = [
+        node
+        for node in candidate_nodes
+        if node.section_slug in _SUBSTANTIVE_SECTION_SLUGS and node.content.strip()
+    ]
+    if substantive_nodes:
+        return substantive_nodes[:2]
+
+    non_metadata_nodes = [
+        node
+        for node in candidate_nodes
+        if not _is_metadata_overview_node(node) and node.content.strip()
+    ]
+    if non_metadata_nodes:
+        return non_metadata_nodes[:1]
+
+    return candidate_nodes[:1]
+
+
 def _build_query_terms(*values: str) -> list[str]:
     terms: list[str] = []
     seen: set[str] = set()
@@ -436,16 +486,18 @@ def _pick_query_nodes_for_prompt(
     if not candidate_nodes:
         return []
 
+    if _is_generic_summary_question(question):
+        return _pick_substantive_default_nodes(candidate_nodes)
+
     focus_terms = _expand_query_terms(_extract_focus_query_terms(question))
     question_terms = _expand_query_terms(_build_query_terms(_remove_excluded_query_segments(question)))
     summary_terms = _expand_query_terms(_build_query_terms(_extract_summary_focus(session_summary)))
     excluded_terms = _expand_query_terms(_build_excluded_query_terms(question))
     if not focus_terms and not question_terms and not summary_terms:
-        return [candidate_nodes[0]]
+        return _pick_substantive_default_nodes(candidate_nodes)
 
-    best_node = max(
-        candidate_nodes,
-        key=lambda node: (
+    scored_nodes = [
+        (
             _score_query_node(
                 node,
                 focus_terms=focus_terms,
@@ -454,8 +506,13 @@ def _pick_query_nodes_for_prompt(
                 excluded_terms=excluded_terms,
             ),
             -node.ordinal,
-        ),
-    )
+            node,
+        )
+        for node in candidate_nodes
+    ]
+    best_score, _, best_node = max(scored_nodes, key=lambda item: (item[0], item[1]))
+    if best_score <= 0:
+        return _pick_substantive_default_nodes(candidate_nodes)
     return [best_node]
 
 

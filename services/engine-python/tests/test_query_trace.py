@@ -172,6 +172,54 @@ def test_context_query_route_picks_the_most_relevant_resource_node() -> None:
     )
 
 
+def test_context_query_route_generic_summary_skips_zhiguang_metadata_overview() -> None:
+    client = TestClient(app)
+    index_response = client.post(
+        "/internal/resources/index",
+        json={
+            "resource_slug": "zhiguang-summary-post",
+            "markdown": (
+                "# b站视频总结\n\n"
+                "Provider: zhiguang\n"
+                "Post ID: 312421331314544640\n"
+                "Content URL: https://example.com/content.md\n"
+                "Content SHA256: abc123\n\n"
+                "## Summary\n\n"
+                "揭秘穷人思维，打破局限，改变认知才能改变命运。\n\n"
+                "## Content\n\n"
+                "常见的穷人思维"
+            ),
+        },
+    )
+
+    assert index_response.status_code == 200
+
+    query_response = client.post(
+        "/internal/context/query",
+        json={
+            "question": "这篇知文主要讲什么？",
+            "resource_id": "zhiguang-summary-post",
+            "session_summary": "围绕当前知光知文生成回答",
+            "memory_items": [],
+        },
+    )
+
+    assert query_response.status_code == 200
+    payload = query_response.json()
+    resource_paths = [
+        resource["nodePath"]
+        for resource in payload["usedContexts"]["resources"]
+    ]
+
+    assert "揭秘穷人思维" in payload["answer"]
+    assert "常见的穷人思维" in payload["answer"]
+    assert "Content URL" not in payload["answer"]
+    assert resource_paths == [
+        "resource://zhiguang-summary-post/l2/s001/000",
+        "resource://zhiguang-summary-post/l2/s002/000",
+    ]
+
+
 def test_context_query_route_prefers_specific_subtopic_when_question_excludes_broader_section() -> None:
     client = TestClient(app)
     index_response = client.post(

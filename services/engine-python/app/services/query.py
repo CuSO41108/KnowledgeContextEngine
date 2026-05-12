@@ -92,8 +92,11 @@ def _build_human_readable_answer(
     resource_snippets: list[str],
 ) -> str:
     lowered_context = f"{question} {session_summary}".lower()
-    primary_snippet = next((snippet.strip() for snippet in resource_snippets if snippet.strip()), "")
-    primary_snippet = primary_snippet.replace(" DB ", " database ").replace(" DB.", " database.")
+    normalized_snippets = [
+        snippet.strip().replace(" DB ", " database ").replace(" DB.", " database.")
+        for snippet in resource_snippets
+        if snippet.strip()
+    ]
     concise_preference = any("concise" in item.lower() or "short" in item.lower() for item in memory_items)
     is_zhiguang_reply = "zhiguang" in lowered_context
     is_cache_aside_question = "cache-aside" in lowered_context or "cache aside" in lowered_context
@@ -103,8 +106,8 @@ def _build_human_readable_answer(
     if is_zhiguang_reply:
         answer_parts.append("Zhiguang reply:")
 
-    if primary_snippet:
-        answer_parts.append(_ensure_terminal_punctuation(primary_snippet))
+    for snippet in normalized_snippets:
+        answer_parts.append(_ensure_terminal_punctuation(snippet))
 
     if is_cache_aside_question:
         answer_parts.append(
