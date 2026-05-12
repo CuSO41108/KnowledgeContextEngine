@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.services.answer_generation import AnswerGenerator, generate_answer_with_fallback
 from app.services.resource_nodes import ResourceNode
 
 
@@ -127,6 +128,7 @@ def build_query_result(
     memory_items: list[str],
     selected_nodes: list[ResourceNode],
     trace_id: str,
+    answer_generator: AnswerGenerator | None = None,
 ) -> QueryResult:
     resource_contexts: list[dict[str, object]] = []
     resource_snippets: list[str] = []
@@ -150,11 +152,19 @@ def build_query_result(
         resource_snippets.append(node.content)
 
     resource_summary = " ".join(resource_snippets).strip()
-    answer = _build_human_readable_answer(
+    fallback_answer = _build_human_readable_answer(
         question=question,
         session_summary=session_summary,
         memory_items=contextual_memory_items,
         resource_snippets=resource_snippets,
+    )
+    answer = generate_answer_with_fallback(
+        question=question,
+        session_summary=session_summary,
+        memory_items=contextual_memory_items,
+        selected_nodes=selected_nodes,
+        fallback_answer=fallback_answer,
+        answer_generator=answer_generator,
     )
 
     before_context_chars = len(question) + len(session_summary) + sum(len(item) for item in contextual_memory_items) + sum(
