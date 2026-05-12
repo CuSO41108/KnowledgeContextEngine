@@ -72,6 +72,21 @@ KnowledgeContextEngine/
 
 `demo-bootstrap` seeds the demo resources and exits successfully before `demo-chat` starts.
 
+### Optional LLM Answer Generation
+
+By default, the engine returns a deterministic fallback answer so local tests and demos run without a model key. To generate answers through an OpenAI-compatible chat provider, set these values in `.env` and recreate `engine-python`:
+
+```env
+ANSWER_LLM_ENABLED=true
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+OPENAI_API_KEY=your-key
+OPENAI_CHAT_MODEL=qwen-plus
+ANSWER_MAX_TOKENS=700
+ANSWER_CONTEXT_MAX_CHARS=6000
+```
+
+If the provider is unavailable or not configured, the engine falls back to the deterministic answer while keeping trace and context metadata intact.
+
 ### Option 2: Run tests locally
 
 ```powershell
