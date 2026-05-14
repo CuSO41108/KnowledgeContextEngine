@@ -71,12 +71,17 @@ def test_demo_story_routes_tracing_question_to_tracing_resource() -> None:
     )
 
     payload = response.json()
-    resource = payload["usedContexts"]["resources"][0]
+    resources = payload["usedContexts"]["resources"]
+    resource_paths = [resource["nodePath"] for resource in resources]
 
     assert response.status_code == 200
     assert_answer_mentions_any(payload, ("Distributed tracing", "trace", "span", "调用链"))
     assert "。." not in payload["answer"]
-    assert resource["nodePath"] == TRACING_OVERVIEW_NODE_PATH
+    assert TRACING_OVERVIEW_NODE_PATH in resource_paths
+    assert TRACING_SAMPLING_NODE_PATH in resource_paths
+    assert resources[0]["retrievalScore"] > 0
+    assert resources[0]["resourceScope"] == "current_resource:m-zhiguang-distributed-tracing-guide"
+    assert resources[0]["matchedTerms"]
 
 
 def test_demo_story_keeps_task_experience_memory_aligned_with_selected_trace_node() -> None:
