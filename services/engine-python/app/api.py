@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from math import log
 from uuid import uuid4
 from re import findall, sub
 
@@ -61,6 +63,27 @@ _METADATA_SECTION_SLUGS = {"overview", "metadata"}
 _MAX_SELECTED_QUERY_NODES = 10
 _MAX_SELECTED_QUERY_CONTENT_CHARS = 4200
 _MAX_SELECTED_NODES_PER_SECTION_FIRST_PASS = 2
+_NODE_LEVEL_WEIGHTS = {
+    "l0": 0.35,
+    "l1": 0.9,
+    "l2": 1.25,
+}
+
+
+@dataclass(frozen=True)
+class ScoredQueryNode:
+    score: float
+    ordinal_sort: int
+    node: ResourceNode
+    matched_terms: tuple[str, ...]
+    score_breakdown: dict[str, float]
+    selection_reason: str
+
+
+@dataclass(frozen=True)
+class QueryNodeSelection:
+    selected_nodes: list[ResourceNode]
+    retrieval_evidence_by_path: dict[str, dict[str, object]]
 
 
 class ResourceIndexRequest(BaseModel):
@@ -137,6 +160,11 @@ class QueryResourceUsageResponse(BaseModel):
     traceNodeId: str
     nodePath: str
     drilldownTrail: list[str]
+    retrievalScore: float = 0.0
+    matchedTerms: list[str] = Field(default_factory=list)
+    selectionReason: str = ""
+    resourceScope: str = ""
+    scoreBreakdown: dict[str, float] = Field(default_factory=dict)
 
 
 class QueryMemoryUsageResponse(BaseModel):
@@ -400,7 +428,7 @@ def _add_selected_query_node(
 
 
 def _select_ranked_query_nodes(
-    ranked_nodes: list[tuple[int, int, ResourceNode]],
+    ranked_nodes: list[ScoredQueryNode],
     *,
     seed_nodes: list[ResourceNode] | None = None,
 ) -> list[ResourceNode]:
@@ -418,30 +446,64 @@ def _select_ranked_query_nodes(
             content_chars=content_chars,
         )
 
-    for score, _, node in ranked_nodes:
-        if score <= 0:
+    for ranked_node in ranked_nodes:
+        if ranked_node.score <= 0:
             continue
         content_chars = _add_selected_query_node(
             selected_nodes,
             seen_paths,
             section_counts,
-            node,
+            ranked_node.node,
             content_chars=content_chars,
             enforce_section_limit=True,
         )
 
-    for score, _, node in ranked_nodes:
-        if score <= 0:
+    for ranked_node in ranked_nodes:
+        if ranked_node.score <= 0:
             continue
         content_chars = _add_selected_query_node(
             selected_nodes,
             seen_paths,
             section_counts,
-            node,
+            ranked_node.node,
             content_chars=content_chars,
         )
 
     return selected_nodes
+
+
+def _build_retrieval_evidence_by_path(
+    *,
+    selected_nodes: list[ResourceNode],
+    ranked_nodes: list[ScoredQueryNode],
+    resource_scope: str,
+    default_reason: str,
+) -> dict[str, dict[str, object]]:
+    ranked_by_path = {ranked_node.node.node_path: ranked_node for ranked_node in ranked_nodes}
+    evidence_by_path: dict[str, dict[str, object]] = {}
+
+    for node in selected_nodes:
+        ranked_node = ranked_by_path.get(node.node_path)
+        if ranked_node is None:
+            evidence_by_path[node.node_path] = {
+                "retrievalScore": 0.0,
+                "matchedTerms": [],
+                "selectionReason": default_reason,
+                "resourceScope": resource_scope,
+                "scoreBreakdown": {},
+            }
+            continue
+
+        reason = ranked_node.selection_reason if ranked_node.score > 0 else default_reason
+        evidence_by_path[node.node_path] = {
+            "retrievalScore": ranked_node.score,
+            "matchedTerms": list(ranked_node.matched_terms),
+            "selectionReason": reason,
+            "resourceScope": resource_scope,
+            "scoreBreakdown": ranked_node.score_breakdown,
+        }
+
+    return evidence_by_path
 
 
 def _extend_with_broad_substantive_nodes(
@@ -561,6 +623,98 @@ def _score_terms_against_node(
     return score
 
 
+def _count_term_occurrences(haystack: str, term: str) -> int:
+    normalized_term = term.lower()
+    if not normalized_term:
+        return 0
+    return haystack.count(normalized_term)
+
+
+def _node_haystacks(node: ResourceNode) -> tuple[str, str]:
+    return node.title.lower(), f"{node.content}\n{node.node_path}".lower()
+
+
+def _node_length(node: ResourceNode) -> int:
+    token_count = len(_build_query_terms(node.title, node.content))
+    return max(token_count, len(node.content) // 4, 1)
+
+
+def _document_frequencies(candidate_nodes: list[ResourceNode], terms: list[str]) -> dict[str, int]:
+    frequencies: dict[str, int] = {}
+    unique_terms = list(dict.fromkeys(terms))
+    for term in unique_terms:
+        frequencies[term] = sum(
+            1
+            for node in candidate_nodes
+            if _count_term_occurrences(_node_haystacks(node)[0], term)
+            or _count_term_occurrences(_node_haystacks(node)[1], term)
+        )
+    return frequencies
+
+
+def _bm25_term_score(
+    *,
+    term_count: int,
+    doc_length: int,
+    avg_doc_length: float,
+    document_frequency: int,
+    total_documents: int,
+) -> float:
+    if term_count <= 0 or document_frequency <= 0 or total_documents <= 0:
+        return 0.0
+    k1 = 1.2
+    b = 0.75
+    idf = log(1 + (total_documents - document_frequency + 0.5) / (document_frequency + 0.5))
+    denominator = term_count + k1 * (1 - b + b * (doc_length / max(avg_doc_length, 1.0)))
+    return idf * ((term_count * (k1 + 1)) / denominator)
+
+
+def _bm25_group_score(
+    node: ResourceNode,
+    *,
+    terms: list[str],
+    title_weight: float,
+    content_weight: float,
+    document_frequencies: dict[str, int],
+    total_documents: int,
+    avg_doc_length: float,
+) -> tuple[float, list[str]]:
+    if not terms:
+        return 0.0, []
+
+    title_haystack, content_haystack = _node_haystacks(node)
+    doc_length = _node_length(node)
+    score = 0.0
+    matched_terms: list[str] = []
+    seen_matches: set[str] = set()
+
+    for term in terms:
+        title_count = _count_term_occurrences(title_haystack, term)
+        content_count = _count_term_occurrences(content_haystack, term)
+        if title_count <= 0 and content_count <= 0:
+            continue
+        if term not in seen_matches:
+            seen_matches.add(term)
+            matched_terms.append(term)
+        document_frequency = document_frequencies.get(term, 0)
+        score += title_weight * _bm25_term_score(
+            term_count=title_count,
+            doc_length=doc_length,
+            avg_doc_length=avg_doc_length,
+            document_frequency=document_frequency,
+            total_documents=total_documents,
+        )
+        score += content_weight * _bm25_term_score(
+            term_count=content_count,
+            doc_length=doc_length,
+            avg_doc_length=avg_doc_length,
+            document_frequency=document_frequency,
+            total_documents=total_documents,
+        )
+
+    return score, matched_terms
+
+
 def _node_term_score(node: ResourceNode, terms: list[str]) -> int:
     if not terms:
         return 0
@@ -606,39 +760,75 @@ def _score_query_node(
     question_terms: list[str],
     summary_terms: list[str],
     excluded_terms: list[str],
-) -> int:
-    title_haystack = node.title.lower()
-    content_haystack = f"{node.content}\n{node.node_path}".lower()
+    document_frequencies: dict[str, int],
+    total_documents: int,
+    avg_doc_length: float,
+) -> ScoredQueryNode:
+    focus_score, focus_matches = _bm25_group_score(
+        node,
+        terms=focus_terms,
+        title_weight=4.2,
+        content_weight=2.8,
+        document_frequencies=document_frequencies,
+        total_documents=total_documents,
+        avg_doc_length=avg_doc_length,
+    )
+    question_score, question_matches = _bm25_group_score(
+        node,
+        terms=question_terms,
+        title_weight=2.8,
+        content_weight=1.9,
+        document_frequencies=document_frequencies,
+        total_documents=total_documents,
+        avg_doc_length=avg_doc_length,
+    )
+    summary_score, summary_matches = _bm25_group_score(
+        node,
+        terms=summary_terms,
+        title_weight=1.1,
+        content_weight=0.7,
+        document_frequencies=document_frequencies,
+        total_documents=total_documents,
+        avg_doc_length=avg_doc_length,
+    )
+    excluded_score, excluded_matches = _bm25_group_score(
+        node,
+        terms=excluded_terms,
+        title_weight=3.5,
+        content_weight=2.2,
+        document_frequencies=document_frequencies,
+        total_documents=total_documents,
+        avg_doc_length=avg_doc_length,
+    )
 
-    score = _score_terms_against_node(
-        title_haystack=title_haystack,
-        content_haystack=content_haystack,
-        query_terms=focus_terms,
-        title_weight=13,
-        content_weight=9,
+    level_weight = _NODE_LEVEL_WEIGHTS.get(node.level, 1.0)
+    positive_score = focus_score + question_score + summary_score
+    final_score = max((positive_score - excluded_score) * level_weight, 0.0)
+    matched_terms = tuple(dict.fromkeys(focus_matches + question_matches + summary_matches))
+    dominant_source = "focus" if focus_score > 0 else "question" if question_score > 0 else "session" if summary_score > 0 else "none"
+    if final_score <= 0:
+        reason = "not selected: no positive evidence after exclusion filtering"
+    else:
+        reason = (
+            f"bm25-like {dominant_source} match in current-resource scope; "
+            f"level={node.level}; matched={', '.join(matched_terms[:6]) or 'none'}"
+        )
+
+    return ScoredQueryNode(
+        score=round(final_score, 4),
+        ordinal_sort=-node.ordinal,
+        node=node,
+        matched_terms=matched_terms,
+        score_breakdown={
+            "focus": round(focus_score, 4),
+            "question": round(question_score, 4),
+            "session": round(summary_score, 4),
+            "excluded": round(excluded_score, 4),
+            "levelWeight": level_weight,
+            "final": round(final_score, 4),
+        },
+        selection_reason=reason,
     )
-    score += _score_terms_against_node(
-        title_haystack=title_haystack,
-        content_haystack=content_haystack,
-        query_terms=question_terms,
-        title_weight=9,
-        content_weight=6,
-    )
-    score += _score_terms_against_node(
-        title_haystack=title_haystack,
-        content_haystack=content_haystack,
-        query_terms=summary_terms,
-        title_weight=4,
-        content_weight=2,
-    )
-    score -= _score_terms_against_node(
-        title_haystack=title_haystack,
-        content_haystack=content_haystack,
-        query_terms=excluded_terms,
-        title_weight=11,
-        content_weight=7,
-    )
-    return score
 
 
 def _rank_query_nodes(
@@ -648,34 +838,43 @@ def _rank_query_nodes(
     question_terms: list[str],
     summary_terms: list[str],
     excluded_terms: list[str],
-) -> list[tuple[int, int, ResourceNode]]:
+) -> list[ScoredQueryNode]:
+    all_terms = focus_terms + question_terms + summary_terms + excluded_terms
+    document_frequencies = _document_frequencies(candidate_nodes, all_terms)
+    total_documents = len(candidate_nodes)
+    avg_doc_length = (
+        sum(_node_length(node) for node in candidate_nodes) / total_documents
+        if total_documents
+        else 1.0
+    )
     ranked_nodes = [
-        (
-            _score_query_node(
+        _score_query_node(
                 node,
                 focus_terms=focus_terms,
                 question_terms=question_terms,
                 summary_terms=summary_terms,
                 excluded_terms=excluded_terms,
-            ),
-            -node.ordinal,
-            node,
+                document_frequencies=document_frequencies,
+                total_documents=total_documents,
+                avg_doc_length=avg_doc_length,
         )
         for node in candidate_nodes
     ]
-    return sorted(ranked_nodes, key=lambda item: (item[0], item[1]), reverse=True)
+    return sorted(ranked_nodes, key=lambda item: (item.score, item.ordinal_sort), reverse=True)
 
 
 def _pick_query_nodes_for_prompt(
     nodes: list[ResourceNode],
     *,
+    resource_id: str,
     question: str,
     session_summary: str,
-) -> list[ResourceNode]:
+) -> QueryNodeSelection:
+    resource_scope = f"current_resource:{resource_id}"
     is_generic_summary_question = _is_generic_summary_question(question)
     candidate_nodes = _pick_generic_summary_candidate_nodes(nodes) if is_generic_summary_question else _pick_query_nodes(nodes)
     if not candidate_nodes:
-        return []
+        return QueryNodeSelection(selected_nodes=[], retrieval_evidence_by_path={})
 
     focus_terms = _expand_query_terms(_extract_focus_query_terms(question))
     question_terms = _expand_query_terms(_build_query_terms(_remove_excluded_query_segments(question)))
@@ -699,10 +898,28 @@ def _pick_query_nodes_for_prompt(
             excluded_terms=excluded_terms,
         )
         selected_nodes = _select_ranked_query_nodes(ranked_nodes, seed_nodes=default_nodes)
-        return _extend_with_broad_substantive_nodes(selected_nodes, candidate_nodes)
+        selected_nodes = _extend_with_broad_substantive_nodes(selected_nodes, candidate_nodes)
+        return QueryNodeSelection(
+            selected_nodes=selected_nodes,
+            retrieval_evidence_by_path=_build_retrieval_evidence_by_path(
+                selected_nodes=selected_nodes,
+                ranked_nodes=ranked_nodes,
+                resource_scope=resource_scope,
+                default_reason="selected as substantive section for generic summary in current-resource scope",
+            ),
+        )
 
     if not focus_terms and not question_terms and not summary_terms:
-        return _pick_substantive_default_nodes(candidate_nodes)
+        selected_nodes = _pick_substantive_default_nodes(candidate_nodes)
+        return QueryNodeSelection(
+            selected_nodes=selected_nodes,
+            retrieval_evidence_by_path=_build_retrieval_evidence_by_path(
+                selected_nodes=selected_nodes,
+                ranked_nodes=[],
+                resource_scope=resource_scope,
+                default_reason="selected as default substantive node because no query terms were available",
+            ),
+        )
 
     ranked_nodes = _rank_query_nodes(
         candidate_nodes,
@@ -713,8 +930,16 @@ def _pick_query_nodes_for_prompt(
     )
     selected_nodes = _select_ranked_query_nodes(ranked_nodes)
     if not selected_nodes:
-        return _pick_substantive_default_nodes(candidate_nodes)
-    return selected_nodes
+        return QueryNodeSelection(selected_nodes=[], retrieval_evidence_by_path={})
+    return QueryNodeSelection(
+        selected_nodes=selected_nodes,
+        retrieval_evidence_by_path=_build_retrieval_evidence_by_path(
+            selected_nodes=selected_nodes,
+            ranked_nodes=ranked_nodes,
+            resource_scope=resource_scope,
+            default_reason="selected by current-resource fallback",
+        ),
+    )
 
 
 def _build_session_state_response(
@@ -798,8 +1023,9 @@ def context_query(
         raise HTTPException(status_code=404, detail="resource not indexed")
 
     trace_id = str(uuid4())
-    selected_nodes = _pick_query_nodes_for_prompt(
+    query_selection = _pick_query_nodes_for_prompt(
         resource_nodes,
+        resource_id=payload.resource_id,
         question=payload.question,
         session_summary=payload.session_summary,
     )
@@ -807,10 +1033,11 @@ def context_query(
         question=payload.question,
         session_summary=payload.session_summary,
         memory_items=payload.memory_items,
-        selected_nodes=selected_nodes,
+        selected_nodes=query_selection.selected_nodes,
         trace_id=trace_id,
+        retrieval_evidence_by_path=query_selection.retrieval_evidence_by_path,
     )
-    snapshots = [build_trace_node_snapshot(node=node) for node in selected_nodes]
+    snapshots = [build_trace_node_snapshot(node=node) for node in query_selection.selected_nodes]
     used_contexts = UsedContextsResponse(
         sessionSummary=query_result.used_contexts["sessionSummary"],
         memories=[

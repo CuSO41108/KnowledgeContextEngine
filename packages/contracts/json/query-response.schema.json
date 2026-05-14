@@ -39,7 +39,17 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["nodeId", "traceNodeId", "nodePath", "drilldownTrail"],
+            "required": [
+              "nodeId",
+              "traceNodeId",
+              "nodePath",
+              "drilldownTrail",
+              "retrievalScore",
+              "matchedTerms",
+              "selectionReason",
+              "resourceScope",
+              "scoreBreakdown"
+            ],
             "properties": {
               "nodeId": {
                 "type": "string"
@@ -54,6 +64,27 @@
                 "type": "array",
                 "items": {
                   "type": "string"
+                }
+              },
+              "retrievalScore": {
+                "type": "number"
+              },
+              "matchedTerms": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "selectionReason": {
+                "type": "string"
+              },
+              "resourceScope": {
+                "type": "string"
+              },
+              "scoreBreakdown": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
                 }
               }
             }

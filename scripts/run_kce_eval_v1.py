@@ -74,6 +74,12 @@ def _evaluate_retrieval_case(client: Any, case: dict[str, Any]) -> dict[str, Any
     resources = payload["usedContexts"]["resources"]
     resource_paths = [resource["nodePath"] for resource in resources]
     failures: list[str] = []
+    should_refuse = bool(case.get("shouldRefuse", False))
+
+    if should_refuse and resources:
+        failures.append(f"expected refusal with no selected resources, got {resource_paths}")
+    if not should_refuse and not resources:
+        failures.append("expected at least one selected evidence resource")
 
     failures.extend(
         f"resource path missing expected fragment: {fragment}"
@@ -88,10 +94,29 @@ def _evaluate_retrieval_case(client: Any, case: dict[str, Any]) -> dict[str, Any
         actual = resource_paths[0] if resource_paths else "<none>"
         failures.append(f"first resource path expected {expected_first_path}, got {actual}")
 
+    expected_evidence_node = case.get("expectedEvidenceNode", "")
+    if expected_evidence_node and expected_evidence_node not in resource_paths:
+        failures.append(f"expected evidence node missing: {expected_evidence_node}")
+
     failures.extend(_failures_for_response_text(payload["answer"], case, field="answer"))
 
     trace_ok = False
-    if case.get("expect_trace_requeryable"):
+    evidence_trace_ok = not resources
+    if resources:
+        first_resource = resources[0]
+        evidence_trace_ok = (
+            isinstance(first_resource.get("retrievalScore"), (int, float))
+            and isinstance(first_resource.get("matchedTerms"), list)
+            and isinstance(first_resource.get("selectionReason"), str)
+            and bool(first_resource.get("selectionReason"))
+            and isinstance(first_resource.get("resourceScope"), str)
+            and first_resource.get("resourceScope", "").startswith("current_resource:")
+            and isinstance(first_resource.get("scoreBreakdown"), dict)
+        )
+        if not evidence_trace_ok:
+            failures.append("first selected resource is missing retrieval evidence trace fields")
+
+    if case.get("expect_trace_requeryable") and resources:
         trace = _request_json(client, "get", f"/internal/traces/{payload['traceId']}")
         first_resource = resources[0]
         trace_node = _request_json(
@@ -109,10 +134,17 @@ def _evaluate_retrieval_case(client: Any, case: dict[str, Any]) -> dict[str, Any
 
     return {
         "id": case["id"],
+        "postId": case.get("postId", ""),
+        "question": case["question"],
+        "expectedEvidenceNode": case.get("expectedEvidenceNode", ""),
+        "shouldRefuse": should_refuse,
+        "actualAnswer": payload["answer"],
+        "qualityNotes": case.get("qualityNotes", ""),
         "axis": case.get("axis", []),
         "passed": not failures,
         "failures": failures,
         "traceRequeryable": trace_ok,
+        "evidenceTracePresent": evidence_trace_ok,
         "selectedNodePaths": resource_paths,
         "answerPreview": payload["answer"][:240],
     }

@@ -38,6 +38,8 @@ def test_build_query_result_returns_traceable_used_context_resources() -> None:
         "resource://zhiguang-cache-doc/l1/s000",
         "resource://zhiguang-cache-doc/l2/s000/000",
     ]
+    assert result.used_contexts["resources"][0]["retrievalScore"] == 0.0
+    assert result.used_contexts["resources"][0]["matchedTerms"] == []
     assert result.compression_summary["beforeContextChars"] > result.compression_summary["afterContextChars"]
 
 
@@ -132,6 +134,11 @@ def test_context_query_route_returns_traceable_resources() -> None:
         "resource://zhiguang-query-doc/l1/s000",
         "resource://zhiguang-query-doc/l2/s000/000",
     ]
+    assert payload["usedContexts"]["resources"][0]["retrievalScore"] > 0
+    assert "cache-aside" in payload["usedContexts"]["resources"][0]["matchedTerms"]
+    assert payload["usedContexts"]["resources"][0]["resourceScope"] == "current_resource:zhiguang-query-doc"
+    assert "bm25-like" in payload["usedContexts"]["resources"][0]["selectionReason"]
+    assert payload["usedContexts"]["resources"][0]["scoreBreakdown"]["final"] > 0
     assert payload["compressionSummary"]["beforeContextChars"] > payload["compressionSummary"]["afterContextChars"]
 
 
@@ -340,3 +347,32 @@ def test_context_query_route_prefers_queue_delivery_subtopic_when_question_exclu
     assert payload["usedContexts"]["resources"][0]["nodePath"] == (
         "resource://zhiguang-queue-doc/l2/s001/000"
     )
+
+
+def test_context_query_route_refuses_when_current_resource_has_no_evidence() -> None:
+    client = TestClient(app)
+    index_response = client.post(
+        "/internal/resources/index",
+        json={
+            "resource_slug": "zhiguang-cache-only-doc",
+            "markdown": "# Redis Cache\n## Cache Aside\nRedis cache-aside keeps the database authoritative.",
+        },
+    )
+
+    assert index_response.status_code == 200
+
+    query_response = client.post(
+        "/internal/context/query",
+        json={
+            "question": "Kubernetes HPA 的扩缩容指标应该怎么配置？",
+            "resource_id": "zhiguang-cache-only-doc",
+            "session_summary": "围绕当前知光知文生成回答",
+            "memory_items": [],
+        },
+    )
+
+    assert query_response.status_code == 200
+    payload = query_response.json()
+
+    assert payload["usedContexts"]["resources"] == []
+    assert "没有足够证据" in payload["answer"]

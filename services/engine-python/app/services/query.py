@@ -131,10 +131,12 @@ def build_query_result(
     memory_items: list[str],
     selected_nodes: list[ResourceNode],
     trace_id: str,
+    retrieval_evidence_by_path: dict[str, dict[str, object]] | None = None,
     answer_generator: AnswerGenerator | None = None,
 ) -> QueryResult:
     resource_contexts: list[dict[str, object]] = []
     resource_snippets: list[str] = []
+    evidence_by_path = retrieval_evidence_by_path or {}
     selected_resource_memory_items = _build_selected_resource_memory_items(selected_nodes)
     contextual_memory_items = [
         memory_item
@@ -142,14 +144,35 @@ def build_query_result(
         if not memory_item.lower().startswith("helpful resource:")
     ] + selected_resource_memory_items
 
+    if not selected_nodes:
+        before_context_chars = len(question) + len(session_summary) + sum(len(item) for item in contextual_memory_items)
+        return QueryResult(
+            answer="当前资源中没有足够证据回答这个问题。请补充相关知文，或把问题限定在当前知文已经覆盖的内容内。",
+            used_contexts={
+                "sessionSummary": session_summary,
+                "memories": [_infer_memory_context(memory_item) for memory_item in contextual_memory_items],
+                "resources": [],
+            },
+            compression_summary={
+                "beforeContextChars": before_context_chars,
+                "afterContextChars": len(session_summary),
+            },
+        )
+
     for node in selected_nodes:
         node_id = build_node_id(resource_slug=node.resource_slug, stable_key=node.stable_key)
+        evidence = evidence_by_path.get(node.node_path, {})
         resource_contexts.append(
             {
                 "nodeId": node_id,
                 "traceNodeId": build_trace_node_id(trace_id=trace_id, node_id=node_id),
                 "nodePath": node.node_path,
                 "drilldownTrail": _build_drilldown_trail(node),
+                "retrievalScore": float(evidence.get("retrievalScore", 0.0)),
+                "matchedTerms": list(evidence.get("matchedTerms", [])),
+                "selectionReason": str(evidence.get("selectionReason", "")),
+                "resourceScope": str(evidence.get("resourceScope", "")),
+                "scoreBreakdown": dict(evidence.get("scoreBreakdown", {})),
             }
         )
         resource_snippets.append(node.content)

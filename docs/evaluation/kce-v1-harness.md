@@ -8,7 +8,7 @@ Run it from the repository root:
 python scripts/run_kce_eval_v1.py
 ```
 
-The runner loads `eval/kce_v1_harness_cases.json`, starts the FastAPI app in process, uses a local SQLite runtime database under `.eval-runtime/`, and forces `ANSWER_LLM_ENABLED=false`. That keeps the result deterministic while still exercising the real resource indexing, query selection, memory extraction, session summarization, and trace lookup routes.
+The runner loads `eval/kce_v1_harness_cases.json`, starts the FastAPI app in process, uses a local SQLite runtime database under `.eval-runtime/`, and forces `ANSWER_LLM_ENABLED=false`. That keeps the result deterministic while still exercising the real resource indexing, BM25-like query selection, memory extraction, session summarization, refusal behavior, and trace lookup routes.
 
 ## What V1 Already Proves
 
@@ -17,6 +17,7 @@ The runner loads `eval/kce_v1_harness_cases.json`, starts the FastAPI app in pro
 - Trace nodes are re-queryable through trace-scoped snapshots, so an answer can still explain what it used after the resource is reindexed later.
 - Memory has two channels: `user` and `task_experience`. Successful resource usage is kept as task experience instead of being mixed into user profile facts.
 - Zhiguang adapter metadata can be present in an imported post without becoming the answer for generic summary questions.
+- Selected resources include evidence metadata: `retrievalScore`, `matchedTerms`, `selectionReason`, `resourceScope`, and `scoreBreakdown`.
 
 ## Harness Axes
 
@@ -29,10 +30,10 @@ The runner loads `eval/kce_v1_harness_cases.json`, starts the FastAPI app in pro
 
 ## Current Gaps
 
-- Retrieval is still heuristic. The current term alias and scoring path is useful enough for v1 dogfooding, but it is not a true hybrid retriever yet.
+- Retrieval is now a scoped BM25-like lexical retriever with node-level weights and evidence metadata. It is still not a full hybrid retriever because vector recall is intentionally reserved for a later layer.
 - Memory extraction is rule-based. It demonstrates the schema and channel split, but still lacks salience calibration, poisoning checks, and richer evidence for why a memory was written.
 - The harness checks structural evidence and deterministic fallback text. Live DeepSeek/OpenAI dogfooding should stay separate because wording can change while the retrieval evidence stays correct.
-- Negative/refusal behavior is not yet first-class in the harness. Add cases where evidence is thin and the expected result is refusal or a guarded answer.
+- Negative/refusal behavior is represented by at least one current-resource case where the expected result is no evidence node and a guarded refusal.
 
 ## Optimization Direction
 
