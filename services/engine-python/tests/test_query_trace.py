@@ -298,6 +298,7 @@ def test_context_query_route_prefers_specific_subtopic_when_question_excludes_br
     payload = query_response.json()
 
     assert "Ranking combines term matching" in payload["answer"]
+    assert "inverted index" not in payload["answer"]
     assert payload["usedContexts"]["resources"][0]["nodePath"] == (
         "resource://zhiguang-search-doc/l2/s001/000"
     )
@@ -335,6 +336,7 @@ def test_context_query_route_prefers_queue_delivery_subtopic_when_question_exclu
     payload = query_response.json()
 
     assert "At-least-once delivery" in payload["answer"]
+    assert "削峰填谷" not in payload["answer"]
     assert payload["usedContexts"]["resources"][0]["nodePath"] == (
         "resource://zhiguang-queue-doc/l2/s001/000"
     )

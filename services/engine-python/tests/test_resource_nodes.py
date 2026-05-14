@@ -43,6 +43,19 @@ def test_build_resource_nodes_keeps_duplicate_titles_uniquely_addressable() -> N
     ]
 
 
+def test_build_resource_nodes_ignores_blank_overview_before_first_section() -> None:
+    markdown = "# Java Cache\n\n## Redis\n\nCache aside keeps DB authoritative."
+
+    nodes = build_resource_nodes(resource_slug="zhiguang-java-cache-playbook", markdown=markdown)
+
+    l1_nodes = [node for node in nodes if node.level == "l1"]
+    l2_nodes = [node for node in nodes if node.level == "l2"]
+
+    assert [node.title for node in l1_nodes] == ["Redis"]
+    assert [node.node_path for node in l1_nodes] == ["resource://zhiguang-java-cache-playbook/l1/s000"]
+    assert [node.node_path for node in l2_nodes] == ["resource://zhiguang-java-cache-playbook/l2/s000/000"]
+
+
 def test_build_resource_nodes_preserves_lineage_when_heading_is_renamed() -> None:
     original_markdown = "# Java Cache\n## Redis\nCache aside keeps DB authoritative."
     renamed_markdown = "# Java Cache\n## Caching Patterns\nCache aside keeps DB authoritative."

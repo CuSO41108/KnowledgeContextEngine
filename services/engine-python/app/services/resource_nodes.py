@@ -58,6 +58,10 @@ def _split_paragraphs(text: str) -> list[str]:
     return paragraphs
 
 
+def _has_substantive_lines(lines: list[str]) -> bool:
+    return any(line.strip() for line in lines)
+
+
 def _parse_section_number(stable_key: str) -> int | None:
     if not stable_key.startswith("l1:s"):
         return None
@@ -166,14 +170,14 @@ def build_resource_nodes(
             document_title = stripped[2:].strip() or document_title
             continue
         if stripped.startswith("## "):
-            if current_section_lines:
+            if _has_substantive_lines(current_section_lines):
                 sections.append((current_section_title, current_section_lines))
             current_section_title = stripped[3:].strip() or "overview"
             current_section_lines = []
             continue
         current_section_lines.append(line)
 
-    if current_section_lines:
+    if _has_substantive_lines(current_section_lines):
         sections.append((current_section_title, current_section_lines))
 
     l0_stable_key = "l0:root"

@@ -15,6 +15,7 @@ if service_root_str not in sys.path:
 TEST_DB_PATH = SERVICE_ROOT / ".pytest_cache" / "runtime-test.db"
 TEST_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("KCE_RUNTIME_DATABASE_URL", f"sqlite+pysqlite:///{TEST_DB_PATH.as_posix()}")
+os.environ["ANSWER_LLM_ENABLED"] = "false"
 
 from app.db import Base, engine
 

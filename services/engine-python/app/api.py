@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from uuid import uuid4
-from re import findall
+from re import findall, sub
 
 from fastapi import APIRouter
 from fastapi import Depends
@@ -524,7 +524,7 @@ def _build_excluded_query_terms(value: str) -> list[str]:
 
 
 def _remove_excluded_query_segments(value: str) -> str:
-    return value.replace("不展开", "\n").replace("不讲", "\n").replace("不讨论", "\n").replace("不解释", "\n")
+    return sub(r"(?:不展开|不讲|不讨论|不解释)[^。；;!?！？]+", " ", value)
 
 
 def _extract_focus_query_terms(value: str) -> list[str]:
@@ -559,6 +559,44 @@ def _score_terms_against_node(
         elif normalized_term in content_haystack:
             score += content_weight + min(len(term), 10)
     return score
+
+
+def _node_term_score(node: ResourceNode, terms: list[str]) -> int:
+    if not terms:
+        return 0
+    title_haystack = node.title.lower()
+    content_haystack = f"{node.content}\n{node.node_path}".lower()
+    return _score_terms_against_node(
+        title_haystack=title_haystack,
+        content_haystack=content_haystack,
+        query_terms=terms,
+        title_weight=1,
+        content_weight=1,
+    )
+
+
+def _node_matches_terms(node: ResourceNode, terms: list[str], *, minimum_score: int = 1) -> bool:
+    return _node_term_score(node, terms) >= minimum_score
+
+
+def _filter_excluded_candidate_nodes(
+    candidate_nodes: list[ResourceNode],
+    *,
+    allow_terms: list[str],
+    excluded_terms: list[str],
+) -> list[ResourceNode]:
+    if not excluded_terms:
+        return candidate_nodes
+
+    filtered_nodes = [
+        node
+        for node in candidate_nodes
+        if not (
+            _node_matches_terms(node, excluded_terms)
+            and not _node_matches_terms(node, allow_terms, minimum_score=5)
+        )
+    ]
+    return filtered_nodes or candidate_nodes
 
 
 def _score_query_node(
@@ -641,8 +679,15 @@ def _pick_query_nodes_for_prompt(
 
     focus_terms = _expand_query_terms(_extract_focus_query_terms(question))
     question_terms = _expand_query_terms(_build_query_terms(_remove_excluded_query_segments(question)))
-    summary_terms = _expand_query_terms(_build_query_terms(_extract_summary_focus(session_summary)))
+    summary_terms = _expand_query_terms(
+        _build_query_terms(_remove_excluded_query_segments(_extract_summary_focus(session_summary)))
+    )
     excluded_terms = _expand_query_terms(_build_excluded_query_terms(question))
+    candidate_nodes = _filter_excluded_candidate_nodes(
+        candidate_nodes,
+        allow_terms=focus_terms or question_terms,
+        excluded_terms=excluded_terms,
+    )
 
     if is_generic_summary_question:
         default_nodes = _pick_substantive_default_nodes(candidate_nodes)
