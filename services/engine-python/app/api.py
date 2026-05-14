@@ -58,6 +58,9 @@ _GENERIC_SUMMARY_TERMS = (
 )
 _SUBSTANTIVE_SECTION_SLUGS = {"summary", "content"}
 _METADATA_SECTION_SLUGS = {"overview", "metadata"}
+_MAX_SELECTED_QUERY_NODES = 10
+_MAX_SELECTED_QUERY_CONTENT_CHARS = 4200
+_MAX_SELECTED_NODES_PER_SECTION_FIRST_PASS = 2
 
 
 class ResourceIndexRequest(BaseModel):
@@ -311,6 +314,17 @@ def _pick_query_nodes(nodes: list[ResourceNode]) -> list[ResourceNode]:
     return l2_nodes or l1_nodes[:1]
 
 
+def _pick_generic_summary_candidate_nodes(nodes: list[ResourceNode]) -> list[ResourceNode]:
+    l1_substantive_nodes = [
+        node
+        for node in nodes
+        if node.level == "l1" and _is_substantive_query_node(node)
+    ]
+    if len(l1_substantive_nodes) > 2:
+        return l1_substantive_nodes
+    return _pick_query_nodes(nodes)
+
+
 def _is_generic_summary_question(value: str) -> bool:
     normalized = value.strip().lower()
     return any(term in normalized for term in _GENERIC_SUMMARY_TERMS)
@@ -344,6 +358,119 @@ def _pick_substantive_default_nodes(candidate_nodes: list[ResourceNode]) -> list
         return non_metadata_nodes[:1]
 
     return candidate_nodes[:1]
+
+
+def _is_substantive_query_node(node: ResourceNode) -> bool:
+    return bool(node.content.strip()) and not _is_metadata_overview_node(node)
+
+
+def _section_stable_key(node: ResourceNode) -> str:
+    for ancestor in reversed(node.ancestry):
+        if ancestor.get("level") == "l1":
+            return ancestor.get("stable_key", node.stable_key)
+    return node.stable_key
+
+
+def _add_selected_query_node(
+    selected_nodes: list[ResourceNode],
+    seen_paths: set[str],
+    section_counts: dict[str, int],
+    node: ResourceNode,
+    *,
+    content_chars: int,
+    enforce_section_limit: bool = False,
+) -> int:
+    if node.node_path in seen_paths or not node.content.strip():
+        return content_chars
+    if len(selected_nodes) >= _MAX_SELECTED_QUERY_NODES:
+        return content_chars
+
+    section_key = _section_stable_key(node)
+    if enforce_section_limit and section_counts.get(section_key, 0) >= _MAX_SELECTED_NODES_PER_SECTION_FIRST_PASS:
+        return content_chars
+
+    next_content_chars = content_chars + len(node.content)
+    if selected_nodes and next_content_chars > _MAX_SELECTED_QUERY_CONTENT_CHARS:
+        return content_chars
+
+    selected_nodes.append(node)
+    seen_paths.add(node.node_path)
+    section_counts[section_key] = section_counts.get(section_key, 0) + 1
+    return next_content_chars
+
+
+def _select_ranked_query_nodes(
+    ranked_nodes: list[tuple[int, int, ResourceNode]],
+    *,
+    seed_nodes: list[ResourceNode] | None = None,
+) -> list[ResourceNode]:
+    selected_nodes: list[ResourceNode] = []
+    seen_paths: set[str] = set()
+    section_counts: dict[str, int] = {}
+    content_chars = 0
+
+    for node in seed_nodes or []:
+        content_chars = _add_selected_query_node(
+            selected_nodes,
+            seen_paths,
+            section_counts,
+            node,
+            content_chars=content_chars,
+        )
+
+    for score, _, node in ranked_nodes:
+        if score <= 0:
+            continue
+        content_chars = _add_selected_query_node(
+            selected_nodes,
+            seen_paths,
+            section_counts,
+            node,
+            content_chars=content_chars,
+            enforce_section_limit=True,
+        )
+
+    for score, _, node in ranked_nodes:
+        if score <= 0:
+            continue
+        content_chars = _add_selected_query_node(
+            selected_nodes,
+            seen_paths,
+            section_counts,
+            node,
+            content_chars=content_chars,
+        )
+
+    return selected_nodes
+
+
+def _extend_with_broad_substantive_nodes(
+    selected_nodes: list[ResourceNode],
+    candidate_nodes: list[ResourceNode],
+) -> list[ResourceNode]:
+    seen_paths = {node.node_path for node in selected_nodes}
+    section_counts: dict[str, int] = {}
+    content_chars = 0
+    for node in selected_nodes:
+        section_key = _section_stable_key(node)
+        section_counts[section_key] = section_counts.get(section_key, 0) + 1
+        content_chars += len(node.content)
+
+    for node in candidate_nodes:
+        if not _is_substantive_query_node(node):
+            continue
+        content_chars = _add_selected_query_node(
+            selected_nodes,
+            seen_paths,
+            section_counts,
+            node,
+            content_chars=content_chars,
+            enforce_section_limit=True,
+        )
+        if len(selected_nodes) >= _MAX_SELECTED_QUERY_NODES:
+            break
+
+    return selected_nodes
 
 
 def _build_query_terms(*values: str) -> list[str]:
@@ -476,27 +603,15 @@ def _score_query_node(
     return score
 
 
-def _pick_query_nodes_for_prompt(
-    nodes: list[ResourceNode],
+def _rank_query_nodes(
+    candidate_nodes: list[ResourceNode],
     *,
-    question: str,
-    session_summary: str,
-) -> list[ResourceNode]:
-    candidate_nodes = _pick_query_nodes(nodes)
-    if not candidate_nodes:
-        return []
-
-    if _is_generic_summary_question(question):
-        return _pick_substantive_default_nodes(candidate_nodes)
-
-    focus_terms = _expand_query_terms(_extract_focus_query_terms(question))
-    question_terms = _expand_query_terms(_build_query_terms(_remove_excluded_query_segments(question)))
-    summary_terms = _expand_query_terms(_build_query_terms(_extract_summary_focus(session_summary)))
-    excluded_terms = _expand_query_terms(_build_excluded_query_terms(question))
-    if not focus_terms and not question_terms and not summary_terms:
-        return _pick_substantive_default_nodes(candidate_nodes)
-
-    scored_nodes = [
+    focus_terms: list[str],
+    question_terms: list[str],
+    summary_terms: list[str],
+    excluded_terms: list[str],
+) -> list[tuple[int, int, ResourceNode]]:
+    ranked_nodes = [
         (
             _score_query_node(
                 node,
@@ -510,10 +625,51 @@ def _pick_query_nodes_for_prompt(
         )
         for node in candidate_nodes
     ]
-    best_score, _, best_node = max(scored_nodes, key=lambda item: (item[0], item[1]))
-    if best_score <= 0:
+    return sorted(ranked_nodes, key=lambda item: (item[0], item[1]), reverse=True)
+
+
+def _pick_query_nodes_for_prompt(
+    nodes: list[ResourceNode],
+    *,
+    question: str,
+    session_summary: str,
+) -> list[ResourceNode]:
+    is_generic_summary_question = _is_generic_summary_question(question)
+    candidate_nodes = _pick_generic_summary_candidate_nodes(nodes) if is_generic_summary_question else _pick_query_nodes(nodes)
+    if not candidate_nodes:
+        return []
+
+    focus_terms = _expand_query_terms(_extract_focus_query_terms(question))
+    question_terms = _expand_query_terms(_build_query_terms(_remove_excluded_query_segments(question)))
+    summary_terms = _expand_query_terms(_build_query_terms(_extract_summary_focus(session_summary)))
+    excluded_terms = _expand_query_terms(_build_excluded_query_terms(question))
+
+    if is_generic_summary_question:
+        default_nodes = _pick_substantive_default_nodes(candidate_nodes)
+        ranked_nodes = _rank_query_nodes(
+            candidate_nodes,
+            focus_terms=focus_terms,
+            question_terms=question_terms,
+            summary_terms=summary_terms,
+            excluded_terms=excluded_terms,
+        )
+        selected_nodes = _select_ranked_query_nodes(ranked_nodes, seed_nodes=default_nodes)
+        return _extend_with_broad_substantive_nodes(selected_nodes, candidate_nodes)
+
+    if not focus_terms and not question_terms and not summary_terms:
         return _pick_substantive_default_nodes(candidate_nodes)
-    return [best_node]
+
+    ranked_nodes = _rank_query_nodes(
+        candidate_nodes,
+        focus_terms=focus_terms,
+        question_terms=question_terms,
+        summary_terms=summary_terms,
+        excluded_terms=excluded_terms,
+    )
+    selected_nodes = _select_ranked_query_nodes(ranked_nodes)
+    if not selected_nodes:
+        return _pick_substantive_default_nodes(candidate_nodes)
+    return selected_nodes
 
 
 def _build_session_state_response(

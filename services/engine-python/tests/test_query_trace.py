@@ -220,6 +220,52 @@ def test_context_query_route_generic_summary_skips_zhiguang_metadata_overview() 
     ]
 
 
+def test_context_query_route_generic_summary_covers_later_long_article_sections() -> None:
+    client = TestClient(app)
+    index_response = client.post(
+        "/internal/resources/index",
+        json={
+            "resource_slug": "zhiguang-long-rag-post",
+            "markdown": (
+                "# RAG 工程化笔记\n\n"
+                "这篇文章讨论从能通到好用的知识问答系统。\n\n"
+                "## 工程分层\n\n"
+                "系统分为内容存储层、按需同步层、节点构建层、查询生成层和观测层。\n\n"
+                "## 排障方法\n\n"
+                "如果答案很短但带引用，先检查原文是否太薄；如果答案像模板，检查 engine-python 的 LLM 环境变量。\n\n"
+                "## 检索优化方向\n\n"
+                "下一步应加入 resource scope、hybrid retrieval 和 evidence trace，让回答能覆盖多个相关章节。"
+            ),
+        },
+    )
+
+    assert index_response.status_code == 200
+
+    query_response = client.post(
+        "/internal/context/query",
+        json={
+            "question": "这篇技术博客主要讲了什么？请总结工程分层、排障方法和检索优化方向。",
+            "resource_id": "zhiguang-long-rag-post",
+            "session_summary": "围绕当前知光知文生成回答",
+            "memory_items": [],
+        },
+    )
+
+    assert query_response.status_code == 200
+    payload = query_response.json()
+    resource_paths = [
+        resource["nodePath"]
+        for resource in payload["usedContexts"]["resources"]
+    ]
+
+    assert any("/l1/s001" in path for path in resource_paths)
+    assert any("/l1/s002" in path for path in resource_paths)
+    assert any("/l1/s003" in path for path in resource_paths)
+    assert "内容存储层" in payload["answer"]
+    assert "LLM 环境变量" in payload["answer"]
+    assert "resource scope" in payload["answer"]
+
+
 def test_context_query_route_prefers_specific_subtopic_when_question_excludes_broader_section() -> None:
     client = TestClient(app)
     index_response = client.post(
