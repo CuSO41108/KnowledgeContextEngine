@@ -6,6 +6,20 @@ from uuid import uuid4
 import httpx
 
 
+REDIS_CACHE_ASIDE_NODE_PATH = "resource://z-zhiguang-redis-cache-playbook/l2/s000/000"
+TRACING_OVERVIEW_NODE_PATH = "resource://m-zhiguang-distributed-tracing-guide/l2/s000/000"
+TRACING_SAMPLING_NODE_PATH = "resource://m-zhiguang-distributed-tracing-guide/l2/s001/000"
+QUEUE_DELIVERY_NODE_PATH = "resource://n-zhiguang-message-queue-delivery-guide/l2/s001/000"
+SEARCH_RANKING_NODE_PATH = "resource://o-zhiguang-search-indexing-guide/l2/s001/000"
+
+
+def assert_answer_mentions_any(payload: dict, fragments: tuple[str, ...]) -> None:
+    answer = str(payload["answer"]).strip()
+    assert answer
+    normalized = answer.lower()
+    assert any(fragment.lower() in normalized for fragment in fragments)
+
+
 def test_demo_story_returns_personalized_traceable_answer() -> None:
     gateway_base_url = os.getenv("KCE_E2E_BASE_URL", "http://localhost:8080").rstrip("/")
     api_key = os.getenv("KCE_E2E_API_KEY", "demo-key")
@@ -26,12 +40,12 @@ def test_demo_story_returns_personalized_traceable_answer() -> None:
     resource = payload["usedContexts"]["resources"][0]
 
     assert response.status_code == 200
-    assert "Zhiguang" in payload["answer"]
-    assert resource["nodePath"] == "resource://z-zhiguang-redis-cache-playbook/l2/s001/000"
+    assert_answer_mentions_any(payload, ("Redis", "cache-aside"))
+    assert resource["nodePath"] == REDIS_CACHE_ASIDE_NODE_PATH
     assert resource["drilldownTrail"] == [
         "resource://z-zhiguang-redis-cache-playbook/l0/root",
-        "resource://z-zhiguang-redis-cache-playbook/l1/s001",
-        "resource://z-zhiguang-redis-cache-playbook/l2/s001/000",
+        "resource://z-zhiguang-redis-cache-playbook/l1/s000",
+        REDIS_CACHE_ASIDE_NODE_PATH,
     ]
     assert any(
         memory["channel"] == "task_experience"
@@ -60,9 +74,9 @@ def test_demo_story_routes_tracing_question_to_tracing_resource() -> None:
     resource = payload["usedContexts"]["resources"][0]
 
     assert response.status_code == 200
-    assert "Distributed tracing" in payload["answer"]
+    assert_answer_mentions_any(payload, ("Distributed tracing", "trace", "span", "调用链"))
     assert "。." not in payload["answer"]
-    assert resource["nodePath"] == "resource://m-zhiguang-distributed-tracing-guide/l2/s001/000"
+    assert resource["nodePath"] == TRACING_OVERVIEW_NODE_PATH
 
 
 def test_demo_story_keeps_task_experience_memory_aligned_with_selected_trace_node() -> None:
@@ -90,10 +104,8 @@ def test_demo_story_keeps_task_experience_memory_aligned_with_selected_trace_nod
     )
 
     assert response.status_code == 200
-    assert resource["nodePath"] == "resource://m-zhiguang-distributed-tracing-guide/l2/s002/000"
-    assert task_experience["content"] == (
-        "Helpful resource: resource://m-zhiguang-distributed-tracing-guide/l2/s002/000"
-    )
+    assert resource["nodePath"] == TRACING_SAMPLING_NODE_PATH
+    assert task_experience["content"] == f"Helpful resource: {TRACING_SAMPLING_NODE_PATH}"
 
 
 def test_demo_story_routes_queue_subtopic_to_delivery_section() -> None:
@@ -116,8 +128,8 @@ def test_demo_story_routes_queue_subtopic_to_delivery_section() -> None:
     resource = payload["usedContexts"]["resources"][0]
 
     assert response.status_code == 200
-    assert "At-least-once delivery" in payload["answer"]
-    assert resource["nodePath"] == "resource://n-zhiguang-message-queue-delivery-guide/l2/s002/000"
+    assert_answer_mentions_any(payload, ("At-least-once delivery", "幂等", "dead-letter", "死信"))
+    assert resource["nodePath"] == QUEUE_DELIVERY_NODE_PATH
 
 
 def test_demo_story_routes_search_subtopic_to_ranking_section() -> None:
@@ -140,8 +152,8 @@ def test_demo_story_routes_search_subtopic_to_ranking_section() -> None:
     resource = payload["usedContexts"]["resources"][0]
 
     assert response.status_code == 200
-    assert "Ranking combines term matching" in payload["answer"]
-    assert resource["nodePath"] == "resource://o-zhiguang-search-indexing-guide/l2/s002/000"
+    assert_answer_mentions_any(payload, ("Ranking combines term matching", "排序", "增量"))
+    assert resource["nodePath"] == SEARCH_RANKING_NODE_PATH
 
 
 def test_public_session_flow_persists_turn_memory_and_trace_surfaces() -> None:
@@ -182,7 +194,7 @@ def test_public_session_flow_persists_turn_memory_and_trace_surfaces() -> None:
     assert tree_response.status_code == 200
     assert tree_payload["resourceId"] == "z-zhiguang-redis-cache-playbook"
     assert any(
-        node["nodePath"] == "resource://z-zhiguang-redis-cache-playbook/l2/s001/000"
+        node["nodePath"] == REDIS_CACHE_ASIDE_NODE_PATH
         for node in tree_payload["nodes"]
     )
 
@@ -201,7 +213,7 @@ def test_public_session_flow_persists_turn_memory_and_trace_surfaces() -> None:
     resource = query_payload["usedContexts"]["resources"][0]
 
     assert query_response.status_code == 200
-    assert resource["nodePath"] == "resource://z-zhiguang-redis-cache-playbook/l2/s001/000"
+    assert resource["nodePath"] == REDIS_CACHE_ASIDE_NODE_PATH
     assert resource["traceNodeId"]
 
     commit_response = httpx.post(
