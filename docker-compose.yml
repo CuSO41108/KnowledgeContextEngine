@@ -21,6 +21,7 @@ services:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      KCE_INTERNAL_TOKEN: ${KCE_INTERNAL_TOKEN}
       REDIS_URL: ${REDIS_URL}
     depends_on:
       postgres:
@@ -39,6 +40,7 @@ services:
     environment:
       KCE_AUTH_API_KEY: ${KCE_AUTH_API_KEY}
       KCE_ENGINE_BASE_URL: ${KCE_ENGINE_BASE_URL}
+      KCE_INTERNAL_TOKEN: ${KCE_INTERNAL_TOKEN}
       KCE_IMPORT_BASE_DIR: ${DEMO_RESOURCE_DIR}
     depends_on:
       engine-python:

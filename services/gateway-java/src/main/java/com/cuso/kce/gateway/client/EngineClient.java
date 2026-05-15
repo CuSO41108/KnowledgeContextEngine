@@ -1,6 +1,8 @@
 package com.cuso.kce.gateway.client;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
@@ -29,14 +31,26 @@ public class EngineClient {
     private record ResourceTreeMetadata(List<String> evidenceTexts) {
     }
 
-    public EngineClient(@Value("${kce.engine.base-url}") String engineBaseUrl) {
+    public EngineClient(String engineBaseUrl) {
+        this(engineBaseUrl, "");
+    }
+
+    @Autowired
+    public EngineClient(
+        @Value("${kce.engine.base-url}") String engineBaseUrl,
+        @Value("${kce.engine.internal-token:}") String internalToken
+    ) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(10_000);
         requestFactory.setReadTimeout(30_000);
-        this.restClient = RestClient.builder()
+        RestClient.Builder builder = RestClient.builder()
             .requestFactory(requestFactory)
-            .baseUrl(engineBaseUrl)
-            .build();
+            .baseUrl(engineBaseUrl);
+        String normalizedToken = normalizeOptional(internalToken).trim();
+        if (!normalizedToken.isBlank()) {
+            builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + normalizedToken);
+        }
+        this.restClient = builder.build();
     }
 
     public Map<String, Object> importResources(String provider, String resourceDir) throws IOException {

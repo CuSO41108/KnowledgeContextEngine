@@ -6,5 +6,6 @@ kce:
     api-key: ${KCE_AUTH_API_KEY:dev-gateway-key}
   engine:
     base-url: ${KCE_ENGINE_BASE_URL:http://engine-python:8000}
+    internal-token: ${KCE_INTERNAL_TOKEN:}
   import:
     base-dir: ${KCE_IMPORT_BASE_DIR:data}

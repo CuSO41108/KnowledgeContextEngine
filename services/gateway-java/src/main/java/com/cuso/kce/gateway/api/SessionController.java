@@ -8,8 +8,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
-
 @RestController
 @RequestMapping("/api/v1/sessions")
 public class SessionController {
@@ -23,42 +21,48 @@ public class SessionController {
     }
 
     @PostMapping
-    public Map<String, Object> createSession(@RequestBody SessionCreateRequest request) {
+    public GatewayResponses.SessionStateResponse createSession(@RequestBody SessionCreateRequest request) {
         String sessionId = request.sessionId();
         String internalUserId = identityService.resolveInternalUserId(request.provider(), request.externalUserId());
-        return engineClient.createSession(
-            sessionId,
-            internalUserId,
-            request.provider(),
-            request.externalUserId(),
-            request.goal()
+        return GatewayResponses.sessionState(
+            engineClient.createSession(
+                sessionId,
+                internalUserId,
+                request.provider(),
+                request.externalUserId(),
+                request.goal()
+            )
         );
     }
 
     @PostMapping("/{sessionId}/query")
-    public Map<String, Object> query(@PathVariable String sessionId, @RequestBody SessionQueryRequest request) {
+    public GatewayResponses.QueryResponse query(@PathVariable String sessionId, @RequestBody SessionQueryRequest request) {
         String internalUserId = identityService.resolveInternalUserId(request.provider(), request.externalUserId());
-        return engineClient.query(
-            sessionId,
-            internalUserId,
-            request.provider(),
-            request.externalUserId(),
-            request.message(),
-            request.goal(),
-            request.resourceId()
+        return GatewayResponses.query(
+            engineClient.query(
+                sessionId,
+                internalUserId,
+                request.provider(),
+                request.externalUserId(),
+                request.message(),
+                request.goal(),
+                request.resourceId()
+            )
         );
     }
 
     @PostMapping("/{sessionId}/commit")
-    public Map<String, Object> commit(@PathVariable String sessionId, @RequestBody SessionCommitRequest request) {
+    public GatewayResponses.SessionCommitResponse commit(@PathVariable String sessionId, @RequestBody SessionCommitRequest request) {
         String internalUserId = identityService.resolveInternalUserId(request.provider(), request.externalUserId());
-        return engineClient.commitSession(
-            sessionId,
-            internalUserId,
-            request.userMessage(),
-            request.assistantAnswer(),
-            request.traceId(),
-            request.goal()
+        return GatewayResponses.sessionCommit(
+            engineClient.commitSession(
+                sessionId,
+                internalUserId,
+                request.userMessage(),
+                request.assistantAnswer(),
+                request.traceId(),
+                request.goal()
+            )
         );
     }
 

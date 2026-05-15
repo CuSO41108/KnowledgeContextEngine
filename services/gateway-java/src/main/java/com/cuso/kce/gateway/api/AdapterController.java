@@ -7,7 +7,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/adapters")
@@ -20,18 +19,20 @@ public class AdapterController {
     }
 
     @PostMapping("/zhiguang/sync")
-    public Map<String, Object> syncZhiguangPost(@RequestBody ZhiguangSyncRequest request) {
-        return engineClient.syncZhiguangPost(
-            request.postId(),
-            request.title(),
-            request.description(),
-            request.tags(),
-            request.contentMarkdown(),
-            request.contentUrl(),
-            request.contentSha256(),
-            request.authorId(),
-            request.status(),
-            request.visible()
+    public GatewayResponses.ZhiguangSyncResponse syncZhiguangPost(@RequestBody ZhiguangSyncRequest request) {
+        return GatewayResponses.zhiguangSync(
+            engineClient.syncZhiguangPost(
+                request.postId(),
+                request.title(),
+                request.description(),
+                request.tags(),
+                request.contentMarkdown(),
+                request.contentUrl(),
+                request.contentSha256(),
+                request.authorId(),
+                request.status(),
+                request.visible()
+            )
         );
     }
 

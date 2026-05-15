@@ -226,6 +226,7 @@ def _build_client() -> Any:
     DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     os.environ["KCE_RUNTIME_DATABASE_URL"] = f"sqlite+pysqlite:///{DEFAULT_DB_PATH.as_posix()}"
     os.environ["ANSWER_LLM_ENABLED"] = "false"
+    os.environ["KCE_INTERNAL_TOKEN"] = ""
     service_root = str(SERVICE_ROOT)
     if service_root not in sys.path:
         sys.path.insert(0, service_root)

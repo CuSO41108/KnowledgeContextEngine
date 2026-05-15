@@ -87,7 +87,9 @@ class ResourceControllerTest {
                         }
                         """)
             )
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+            .andExpect(jsonPath("$.message").value("resourceDir must stay within the configured import root"));
 
         verifyNoInteractions(engineClient);
     }

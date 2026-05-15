@@ -4,8 +4,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
+import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+
+import com.sun.net.httpserver.HttpServer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -79,5 +83,33 @@ class EngineClientTest {
         );
 
         assertThat(resourceId).isEqualTo("zhiguang-post-post-262804640385601536");
+    }
+
+    @Test
+    void internalTokenIsSentToEngineRequests() throws Exception {
+        AtomicReference<String> authorization = new AtomicReference<>("");
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/resources/test/tree", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] body = "{\"resourceId\":\"test\",\"nodes\":[]}".getBytes();
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            EngineClient engineClient = new EngineClient(
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                "test-internal-token"
+            );
+
+            engineClient.getResourceTree("test");
+        } finally {
+            server.stop(0);
+        }
+
+        assertThat(authorization.get()).isEqualTo("Bearer test-internal-token");
     }
 }

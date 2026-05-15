@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     answer_llm_timeout_seconds: float = 20.0
     answer_max_tokens: int = 700
     answer_context_max_chars: int = 6000
+    kce_internal_token: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
