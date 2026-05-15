@@ -63,11 +63,14 @@ _METADATA_SECTION_SLUGS = {"overview", "metadata"}
 _MAX_SELECTED_QUERY_NODES = 10
 _MAX_SELECTED_QUERY_CONTENT_CHARS = 4200
 _MAX_SELECTED_NODES_PER_SECTION_FIRST_PASS = 2
+_MIN_SELECTED_QUERY_SCORE_WITH_EXCLUSIONS = 5.0
 _NODE_LEVEL_WEIGHTS = {
     "l0": 0.35,
     "l1": 0.9,
     "l2": 1.25,
 }
+_EXCLUSION_PREFIX_PATTERN = r"(?:不展开|不讲|不讨论|不解释|不要展开|不要讲|不要讨论|不要解释)"
+_CLAUSE_BOUNDARY_CHARS = r"。；;!?！？，,"
 
 
 @dataclass(frozen=True)
@@ -431,6 +434,7 @@ def _select_ranked_query_nodes(
     ranked_nodes: list[ScoredQueryNode],
     *,
     seed_nodes: list[ResourceNode] | None = None,
+    minimum_score: float = 0.0,
 ) -> list[ResourceNode]:
     selected_nodes: list[ResourceNode] = []
     seen_paths: set[str] = set()
@@ -447,7 +451,7 @@ def _select_ranked_query_nodes(
         )
 
     for ranked_node in ranked_nodes:
-        if ranked_node.score <= 0:
+        if ranked_node.score <= 0 or ranked_node.score < minimum_score:
             continue
         content_chars = _add_selected_query_node(
             selected_nodes,
@@ -459,7 +463,7 @@ def _select_ranked_query_nodes(
         )
 
     for ranked_node in ranked_nodes:
-        if ranked_node.score <= 0:
+        if ranked_node.score <= 0 or ranked_node.score < minimum_score:
             continue
         content_chars = _add_selected_query_node(
             selected_nodes,
@@ -579,19 +583,21 @@ def _expand_query_terms(query_terms: list[str]) -> list[str]:
 
 
 def _build_excluded_query_terms(value: str) -> list[str]:
-    excluded_segments = findall(r"(?:不展开|不讲|不讨论|不解释)([^。；;!?！？]+)", value)
+    excluded_segments = findall(rf"{_EXCLUSION_PREFIX_PATTERN}([^{_CLAUSE_BOUNDARY_CHARS}]+)", value)
+    excluded_segments.extend(findall(r"不要把(.+?)(?:当作|作为|当)", value))
     if not excluded_segments:
         return []
     return _build_query_terms(*excluded_segments)
 
 
 def _remove_excluded_query_segments(value: str) -> str:
-    return sub(r"(?:不展开|不讲|不讨论|不解释)[^。；;!?！？]+", " ", value)
+    without_exclusion_clauses = sub(rf"{_EXCLUSION_PREFIX_PATTERN}[^{_CLAUSE_BOUNDARY_CHARS}]+", " ", value)
+    return sub(r"不要把.+?(?:当作|作为|当)[^。；;!?！？]+", " ", without_exclusion_clauses)
 
 
 def _extract_focus_query_terms(value: str) -> list[str]:
     focus_segments = findall(
-        r"(?:只想|想要|想)(?:解释|讲|聊|覆盖)([^。；;!?！？]+?)(?:，|,|不展开|不讲|不讨论|不解释|$)",
+        rf"(?:只想|想要|想|只)(?:解释|讲|聊|覆盖)([^{_CLAUSE_BOUNDARY_CHARS}]+?)(?:[{_CLAUSE_BOUNDARY_CHARS}]|{_EXCLUSION_PREFIX_PATTERN}|$)",
         value,
     )
     if not focus_segments:
@@ -897,7 +903,11 @@ def _pick_query_nodes_for_prompt(
             summary_terms=summary_terms,
             excluded_terms=excluded_terms,
         )
-        selected_nodes = _select_ranked_query_nodes(ranked_nodes, seed_nodes=default_nodes)
+        selected_nodes = _select_ranked_query_nodes(
+            ranked_nodes,
+            seed_nodes=default_nodes,
+            minimum_score=_MIN_SELECTED_QUERY_SCORE_WITH_EXCLUSIONS if excluded_terms else 0.0,
+        )
         selected_nodes = _extend_with_broad_substantive_nodes(selected_nodes, candidate_nodes)
         return QueryNodeSelection(
             selected_nodes=selected_nodes,
@@ -928,7 +938,10 @@ def _pick_query_nodes_for_prompt(
         summary_terms=summary_terms,
         excluded_terms=excluded_terms,
     )
-    selected_nodes = _select_ranked_query_nodes(ranked_nodes)
+    selected_nodes = _select_ranked_query_nodes(
+        ranked_nodes,
+        minimum_score=_MIN_SELECTED_QUERY_SCORE_WITH_EXCLUSIONS if excluded_terms else 0.0,
+    )
     if not selected_nodes:
         return QueryNodeSelection(selected_nodes=[], retrieval_evidence_by_path={})
     return QueryNodeSelection(

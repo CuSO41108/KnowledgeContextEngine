@@ -311,6 +311,49 @@ def test_context_query_route_prefers_specific_subtopic_when_question_excludes_br
     )
 
 
+def test_context_query_route_handles_exclusion_before_positive_focus() -> None:
+    client = TestClient(app)
+    index_response = client.post(
+        "/internal/resources/index",
+        json={
+            "resource_slug": "zhiguang-search-prefix-exclusion-doc",
+            "markdown": (
+                "# 搜索系统从倒排到排序\n"
+                "## 倒排索引\n"
+                "倒排索引把词项映射到包含该词的文档列表。\n\n"
+                "## 排序信号\n"
+                "排序可以综合标题命中、正文命中、发布时间、作者质量和内容完整度。\n\n"
+                "## 增量刷新\n"
+                "知文发布、编辑、删除后，可以通过 outbox 事件、消息队列或定时补偿同步到搜索引擎。"
+            ),
+        },
+    )
+
+    assert index_response.status_code == 200
+
+    query_response = client.post(
+        "/internal/context/query",
+        json={
+            "question": "不展开倒排索引，只讲排序信号和增量刷新应该怎么做。",
+            "resource_id": "zhiguang-search-prefix-exclusion-doc",
+            "session_summary": "围绕当前知光知文生成回答",
+            "memory_items": [],
+        },
+    )
+
+    assert query_response.status_code == 200
+    payload = query_response.json()
+    resource_paths = [
+        resource["nodePath"]
+        for resource in payload["usedContexts"]["resources"]
+    ]
+
+    assert "resource://zhiguang-search-prefix-exclusion-doc/l2/s001/000" in resource_paths
+    assert "resource://zhiguang-search-prefix-exclusion-doc/l2/s002/000" in resource_paths
+    assert "resource://zhiguang-search-prefix-exclusion-doc/l2/s000/000" not in resource_paths[:2]
+    assert payload["usedContexts"]["resources"][0]["matchedTerms"]
+
+
 def test_context_query_route_prefers_queue_delivery_subtopic_when_question_excludes_overview() -> None:
     client = TestClient(app)
     index_response = client.post(
@@ -347,6 +390,43 @@ def test_context_query_route_prefers_queue_delivery_subtopic_when_question_exclu
     assert payload["usedContexts"]["resources"][0]["nodePath"] == (
         "resource://zhiguang-queue-doc/l2/s001/000"
     )
+
+
+def test_context_query_route_handles_dont_talk_about_exclusion_phrase() -> None:
+    client = TestClient(app)
+    index_response = client.post(
+        "/internal/resources/index",
+        json={
+            "resource_slug": "zhiguang-ops-multi-topic-doc",
+            "markdown": (
+                "# 后端系统稳定性排查清单\n"
+                "## Redis 缓存\n"
+                "缓存适合降低热点读压力，排查时要看命中率、热点 key、TTL 分布和数据库 QPS。\n\n"
+                "## 消息队列\n"
+                "消息队列会引入重复消费、消息积压和顺序性问题。消费者必须设计幂等逻辑，失败消息最好进入死信队列。"
+            ),
+        },
+    )
+
+    assert index_response.status_code == 200
+
+    query_response = client.post(
+        "/internal/context/query",
+        json={
+            "question": "消息队列排查时要注意哪些问题？不要讲 Redis 缓存。",
+            "resource_id": "zhiguang-ops-multi-topic-doc",
+            "session_summary": "围绕当前知光知文生成回答",
+            "memory_items": [],
+        },
+    )
+
+    assert query_response.status_code == 200
+    payload = query_response.json()
+
+    assert payload["usedContexts"]["resources"][0]["nodePath"] == (
+        "resource://zhiguang-ops-multi-topic-doc/l2/s001/000"
+    )
+    assert "redis" not in [term.lower() for term in payload["usedContexts"]["resources"][0]["matchedTerms"]]
 
 
 def test_context_query_route_refuses_when_current_resource_has_no_evidence() -> None:
