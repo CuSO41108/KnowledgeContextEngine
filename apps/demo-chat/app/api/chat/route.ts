@@ -76,7 +76,6 @@ export async function POST(request: Request) {
   const goal = resolveRouteGoal(body.goal);
   const gatewayBaseUrl = buildGatewayUrl();
 
-  const sessionUrl = `${gatewayBaseUrl}/api/v1/sessions`;
   const queryUrl = `${gatewayBaseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/query`;
   const commitUrl = `${gatewayBaseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`;
   const apiKey =
@@ -87,29 +86,6 @@ export async function POST(request: Request) {
     "Content-Type": "application/json",
     ...(apiKey ? { "X-API-Key": apiKey } : {}),
   };
-
-  const sessionResponse = await fetch(sessionUrl, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      provider,
-      externalUserId,
-      sessionId,
-      goal,
-    }),
-    cache: "no-store",
-  });
-
-  if (!sessionResponse.ok) {
-    return Response.json(
-      {
-        error: "Gateway session creation failed.",
-        details: await readGatewayError(sessionResponse),
-        status: sessionResponse.status,
-      },
-      { status: sessionResponse.status },
-    );
-  }
 
   const gatewayResponse = await fetch(queryUrl, {
     method: "POST",
