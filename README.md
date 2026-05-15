@@ -33,7 +33,7 @@ KnowledgeContextEngine 是一个面向知识社区场景的上下文引擎项目
 - `services/engine-python`
   核心上下文引擎，负责资源索引、节点构建、检索评分、记忆提取、上下文融合、答案生成和 trace 持久化。
 - `services/gateway-java`
-  对外 API 边界，负责 API Key 鉴权、身份映射、请求校验，以及把前端或业务后端请求代理到 Python engine。
+  对外 API 边界，负责 API Key 鉴权、身份映射、请求校验，以及把前端或业务后端请求代理到 Python engine。Gateway 到 engine 的 `/internal/*` 调用使用内部 Bearer token 保护。
 - `apps/demo-chat`
   轻量演示前端，用来展示回答和 trace；它不承担检索、记忆或上下文编排逻辑。
 - `data/demo-resources`
@@ -42,6 +42,17 @@ KnowledgeContextEngine 是一个面向知识社区场景的上下文引擎项目
   v1 评测集，记录问题、预期证据节点、是否应拒答和质量备注。
 - `scripts`
   数据种子、等待服务、评测 harness 等本地工具。
+
+### V1 接入边界
+
+`provider` 在本项目里表示资源来源命名空间，而不是模型厂商。例如：
+
+- `demo_local` 表示本地 demo Markdown 资源。
+- `zhiguang` 表示从知光后端同步进来的知文资源。
+
+知光详情页问答的 v1 主链路是当前资源限定检索：业务后端先把当前知文按需同步到 KCE，拿到 `resourceId`，再用这个 `resourceId` 调用 session query。Python engine 在当前知文内选择 L0/L1/L2 证据节点，并返回 answer、used contexts、compression summary 和可回查 trace。
+
+`/api/v1/resources/import` 是本地 demo 的目录导入能力；真实业务接入优先走类似 `/api/v1/adapters/zhiguang/sync` 的 payload 同步接口。
 
 ## 快速开始
 
@@ -114,9 +125,11 @@ ANSWER_CONTEXT_MAX_CHARS=6000
 ```powershell
 mvn -f services/gateway-java/pom.xml test
 npm --prefix apps/demo-chat test
-python -m pytest services/engine-python/tests -v --cov=app.services --cov-fail-under=90
+python -m pytest services/engine-python/tests -v --ignore=services/engine-python/tests/test_demo_story_e2e.py --cov=app.services --cov-fail-under=90
 python scripts/run_kce_eval_v1.py
 ```
+
+`test_demo_story_e2e.py` 需要先启动并 seed Docker demo stack；CI 会把它作为单独任务运行，避免本机已有 `localhost:8080` 服务污染结果。
 
 ## 本地开发依赖
 

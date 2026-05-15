@@ -31,6 +31,7 @@ The runner loads `eval/kce_v1_harness_cases.json`, starts the FastAPI app in pro
 ## Current Gaps
 
 - Retrieval is now a scoped BM25-like lexical retriever with node-level weights and evidence metadata. It is still not a full hybrid retriever because vector recall is intentionally reserved for a later layer.
+- Provider-scope resource selection is intentionally not the V1 acceptance target. The Zhiguang detail-page path syncs the current post first, then queries with that concrete `resourceId`, so the harness focuses on current-resource evidence quality.
 - Memory extraction is rule-based. It demonstrates the schema and channel split, but still lacks salience calibration, poisoning checks, and richer evidence for why a memory was written.
 - The harness checks structural evidence and deterministic fallback text. Live DeepSeek/OpenAI dogfooding should stay separate because wording can change while the retrieval evidence stays correct.
 - Negative/refusal behavior is represented by at least one current-resource case where the expected result is no evidence node and a guarded refusal.
