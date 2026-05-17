@@ -2,21 +2,21 @@
 
 [![CI](https://github.com/CuSO41108/KnowledgeContextEngine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/CuSO41108/KnowledgeContextEngine/actions/workflows/ci.yml)
 
-KnowledgeContextEngine 是一个面向知识社区场景的上下文引擎项目。它不是为了“在项目里硬塞 RAG”而做的问答 demo，而是围绕一个更基础的问题展开：当用户提问时，系统应该如何判断、组织、检索、压缩和解释上下文。
+KnowledgeContextEngine 是一个面向知识社区场景的 Agent Context Engine，目标是为问答、长期记忆和后续 Agent 执行提供可追踪的上下文基础设施。
 
-普通 RAG 往往停留在“文档切片 + 向量召回 + topK 拼 prompt”。这个项目更关注 context engineering：把资源、会话和长期记忆拆开建模，让每次回答都能说明它使用了哪些证据、为什么选择这些节点、当前证据是否足够，以及这次任务经验能否沉淀为后续可复用的记忆。
+普通 RAG 往往停留在“文档切片 + topK 拼 prompt”。本项目更关注 context engineering：如何把资源、会话和长期记忆拆开建模，并让每次回答都能解释证据来源、选择原因和上下文压缩过程。
 
 ## 项目思考
 
-我最初参考的是 OpenViking 一类 Context Database / Agent Context 系统的思路。它们并不只是传统 RAG，而是把 Agent 运行所需的 memory、resources、skills 和 session context 统一管理，并强调分层加载、可观察检索轨迹和上下文自迭代。
+我最初参考的是 OpenViking 一类 Context Database / Agent Context 系统的思路。它们把 Agent 运行所需的 memory、resources、skills 和 session context 统一管理，并强调分层加载、可观察检索轨迹和上下文自迭代。
 
-所以这个项目的目标不是证明“我会接 RAG”，而是体现下面这层判断：
+KnowledgeContextEngine 的设计目标是把问答过程中的上下文变成可建模、可追踪、可评测的工程对象。相比普通的“文档切片 + topK 拼 prompt”式 RAG，本项目更强调以下几个设计原则：
 
-- 不是所有问题都应该检索；没有证据时应该拒答或谨慎回答。
-- 检索结果不能是黑盒；需要能看到命中词、分数、节点路径和选择原因。
-- 上下文不只有文档；还包括当前会话目标、用户偏好、历史成功资源和任务经验。
-- 长文问答不应只抓第一段；需要能覆盖多个相关章节。
-- 后续优化不能靠感觉；需要用评测集固定问题、预期证据节点和质量备注。
+- **证据约束回答**：在当前资源范围内选择可用证据；证据不足时返回拒答或谨慎回答。
+- **可观察检索**：为每次回答保留命中词、分数、节点路径、选择原因和 trace 快照。
+- **多源上下文融合**：将资源文档、会话目标、用户偏好、历史成功资源和任务经验统一建模。
+- **分层证据组织**：通过 L0 / L1 / L2 资源节点支持从粗粒度概览到细粒度证据的 drill-down。
+- **评测驱动迭代**：用固定评测集验证检索命中、拒答、记忆抽取和 trace 可回查，而不是只依赖单次 demo 效果。
 
 ## 核心能力
 
@@ -107,7 +107,7 @@ ANSWER_MAX_TOKENS=700
 ANSWER_CONTEXT_MAX_CHARS=6000
 ```
 
-DeepSeek 也可以作为同一个 OpenAI-compatible provider 使用：
+DeepSeek 也可以通过同一套 OpenAI-compatible 配置接入：
 
 ```env
 ANSWER_LLM_ENABLED=true
